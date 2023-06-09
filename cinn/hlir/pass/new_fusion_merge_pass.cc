@@ -38,9 +38,9 @@ using ConditionFunction = std::function<bool(const FusionHelperBase*, const Grou
 // "vertically", meaning producing Ops are fused into their consumers
 // with the intent that the loops which compute their values will be fused in
 // code generation.
-class FusionMergePassHelper : public FusionHelperBase {
+class NewFusionMergePassHelper : public FusionHelperBase {
  public:
-  FusionMergePassHelper(const Graph* graph) : FusionHelperBase(graph) {
+  NewFusionMergePassHelper(const Graph* graph) : FusionHelperBase(graph) {
     fusion_groups_ = graph->fusion_groups;
     // init fusion relation.
     InitFusionRelation();
@@ -118,6 +118,7 @@ class FusionMergePassHelper : public FusionHelperBase {
       updated |= VerticalFusion(producer, producer->CollectConsumerGroups(), recompute);
     }
     // fuse input consumers
+    // Reuse HorizontalFusion
     updated |= FuseInputToConsumers();
 
     if (updated) {
@@ -885,6 +886,7 @@ class FusionMergePassHelper : public FusionHelperBase {
       belong_group->fused_sub_groups.push_back(group);
       group->belong_groups.insert(belong_group);
       // replace group to fused_group
+      // fusion_groups_ 里面没有子图了
       fusion_groups_[idx] = belong_group;
       // record idx
       fusion_groups_index_[belong_group] = idx;
@@ -1020,7 +1022,7 @@ void NewFusionMergePassInternal(Graph* graph) {
     return;
   }
 
-  FusionMergePassHelper fusion_merge_pass_helper(graph);
+  NewFusionMergePassHelper fusion_merge_pass_helper(graph);
   graph->fusion_groups = fusion_merge_pass_helper();
 }
 

@@ -8,6 +8,7 @@ gather_srcs(cinnapi_src SRCS
     const_propagate.cc
     op_fusion_pass.cc
     fusion_merge_pass.cc
+    new_fusion_merge_pass.cc
     dot_merger.cc
     check_fusion_accuracy_pass.cc
     custom_call_pass.cc
@@ -28,6 +29,7 @@ cc_test(test_dot_merger_pass SRCS dot_merger_test.cc DEPS cinncore)
 
 # TODO(thisjiang): move when test bug in x86 is fixed
 cc_test(test_check_fusion_accuracy_pass SRCS check_fusion_accuracy_pass_test.cc DEPS cinncore decomposer_test_helper)
+cc_test(test_check_new_fusion_accuracy_pass SRCS check_new_fusion_accuracy_pass_test.cc DEPS cinncore decomposer_test_helper)
 cc_test(test_dense_merge_pass SRCS dense_merge_pass_test.cc DEPS cinncore)
 cc_test(test_reduce_split_pass SRCS reduce_split_pass_test.cc DEPS cinncore)
 endif()
