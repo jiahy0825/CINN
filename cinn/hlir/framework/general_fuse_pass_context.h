@@ -15,7 +15,6 @@
 #pragma once
 
 #include "cinn/hlir/framework/fuse_pass_context.h"
-#include "cinn/hlir/framework/general_fuse_group.h"
 #include "cinn/hlir/framework/graph.h"
 
 namespace cinn {
@@ -26,15 +25,19 @@ class GeneralFusePassContext : public FusePassContext {
  public:
   GeneralFusePassContext(const Graph& graph);
 
-  std::shared_ptr<GeneralFuseGroup> PickGroup();
+  std::shared_ptr<OpGroupInterface> PickGroup();
 
-  void EnableRecompute(const GeneralFuseGroup& op_group);
+  void EnableRecompute(const OpGroupInterface& op_group);
 
-  void EnableVerticalFuse(const GeneralFuseGroup& first_op_group, const GeneralFuseGroup& second_op_group);
+  void EnableVerticalFuse(const OpGroupInterface& first_op_group, const OpGroupInterface& second_op_group);
 
-  void EnableHorizontalFuse(const GeneralFuseGroup& first_op_group, const GeneralFuseGroup& second_op_group);
+  void EnableHorizontalFuse(const OpGroupInterface& first_op_group, const OpGroupInterface& second_op_group);
 
-  bool CanHorizontalFuse()
+  bool CanHorizontalFuse(const OpGroupInterface& iter1, const OpGroupInterface& iter2);
+
+  void CleanGroup(const OpGroupInterface& group);
+
+  void InsertGroup(const OpGroupInterface& group);
 };
 
 }  // namespace framework

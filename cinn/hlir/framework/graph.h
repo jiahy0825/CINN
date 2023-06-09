@@ -56,7 +56,7 @@ class Graph : public cinn::common::Graph {
   absl::flat_hash_map<std::string, std::shared_ptr<absl::any>> attrs;
 
   std::vector<std::vector<Node*>> groups;
-  struct Group {
+  class Group : public OpGroupInterface {
     // distance to last group.
     int depth{0};
     int max_depth{0};

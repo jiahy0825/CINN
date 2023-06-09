@@ -12,30 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#pragma once
+#include "cinn/common/is_reachable_predicator.h"
 
-#include <memory>
-#include <unordered_set>
-
-#include "cinn/hlir/framework/op_group_interface.h"
+#include <glog/logging.h>
+#include <gtest/gtest.h>
 
 namespace cinn {
-namespace hlir {
-namespace framework {
+namespace common {
 
-class GeneralFuseGroup : public OpGroupInterface {
- public:
-  const GeneralFuseGroup& input_tensors();
+TEST(IsReachablePredicator, simple) {
+  IsReachablePredicator<int> IsReachable(
+      // Get min depth
+      [](int x) { return std::abs(x); },
+      // Get max depth
+      [](int x) { return std::abs(x); },
+      // visit next node
+      [](int x, const std::function<void(int)>& Handler) { Handler(x + (x / std::abs(x))); });
+  EXPECT_TRUE(IsReachable(33, 99, [](int) {}));
+  EXPECT_FALSE(IsReachable(33, -99, [](int) {}));
+}
 
-  const GeneralFuseGroup& output_tensors();
-
-  const std::unordered_set<std::shared_ptr<GeneralFuseGroup>> producers();
-
-  const std::unordered_set<std::shared_ptr<GeneralFuseGroup>> consumers();
-
-  protect : GeneralFuseGroup() = default;
-};
-
-}  // namespace framework
-}  // namespace hlir
+}  // namespace common
 }  // namespace cinn

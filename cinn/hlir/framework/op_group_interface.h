@@ -34,7 +34,8 @@ class OpGroupInterface {
 
   virtual const std::unordered_set<std::shared_ptr<OpGroupInterface>> consumers() const = 0;
 
-  protect : OpGroupInterface() = default;
+ protected:
+  OpGroupInterface() = default;
 };
 
 }  // namespace framework
