@@ -17,24 +17,23 @@
 #include <memory>
 #include <unordered_set>
 
-#include "cinn/hlir/framework/tensor_interface.h"
-#include "cinn/hlir/framework/tensor_interface_list.h"
+#include "cinn/hlir/framework/op_group_interface.h"
 
 namespace cinn {
 namespace hlir {
 namespace framework {
 
-class OpGroupInterface {
+class GeneralFuseGroup : public OpGroupInterface {
  public:
-  virtual const TensorInterfaceList& input_tensors() const = 0;
+  const GeneralFuseGroup& input_tensors();
 
-  virtual const TensorInterfaceList& output_tensors() const = 0;
+  const GeneralFuseGroup& output_tensors();
 
-  virtual const std::unordered_set<std::shared_ptr<OpGroupInterface>> producers() const = 0;
+  const std::unordered_set<std::shared_ptr<GeneralFuseGroup>> producers();
 
-  virtual const std::unordered_set<std::shared_ptr<OpGroupInterface>> consumers() const = 0;
+  const std::unordered_set<std::shared_ptr<GeneralFuseGroup>> consumers();
 
-  protect : OpGroupInterface() = default;
+  protect : GeneralFuseGroup() = default;
 };
 
 }  // namespace framework

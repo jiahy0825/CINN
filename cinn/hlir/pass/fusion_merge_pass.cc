@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "cinn/hlir/framework/general_fuse_group.h"
+#include "cinn/hlir/framework/general_fuse_pass_context.h"
 #include "cinn/hlir/pass/fusion_merge_pass_util.h"
 
 DECLARE_bool(enhance_vertical_fusion_with_recompute);
@@ -32,6 +34,9 @@ using common::GraphNode;
 using GroupPtr  = std::shared_ptr<Graph::Group>;
 using GroupList = std::vector<GroupPtr>;
 
+using GeneralFuseGroupPtr = std::shared_ptr<GeneralFuseGroup>;
+using GeneralFuseGroupSet = std::unordered_set<GeneralFuseGroupPtr>;
+
 using ConditionFunction = std::function<bool(const FusionHelperBase*, const GroupPtr&, const GroupPtr&)>;
 
 // Op Fusion Pass which performs Ops fusion, Ops are fused
@@ -42,6 +47,7 @@ class FusionMergePassHelper : public FusionHelperBase {
  public:
   FusionMergePassHelper(const Graph* graph) : FusionHelperBase(graph) {
     fusion_groups_ = graph->fusion_groups;
+    pass_ctx_      = std::make_unique<GeneralFusePassContext>(*graph);
     // init fusion relation.
     InitFusionRelation();
     // init input to consumers.
@@ -73,12 +79,51 @@ class FusionMergePassHelper : public FusionHelperBase {
  private:
   void DoFusionMerge() {
     VLOG(3) << "DoFusionMerge...!";
+    bool update = true;
+    while (update) {
+      update = false;
+      // TODO: Iterate All TagPasses
+      // for (const auto& tag_pass: PassManager.Instance().AllPasses()) {
+      while (TryHorizontalFusion()) {
+        update = true;
+      }
+      // TODO: Implemente TryRecompute and TryVerticalFusion
+      // while (TryRecompute()) { update = true; }
+      // while (TryVerticalFusion()) { update = true; }
+      // }
+    }
     while (DoHorizontalFusion()) {
     }
     while (DoVerticalFusion(/* recompute=*/false)) {
     }
     while (DoVerticalFusion(/* recompute=*/true)) {
     }
+  }
+
+  bool TryHorizontalFusion() {
+    // Judge
+    std::shared_ptr<GeneralFuseGroup> group = pass_ctx_->PickGroup();
+    GeneralFuseGroupSet consumer_set        = group->consumers();
+    GeneralFuseGroupPtr consumer1{nullptr};
+    GeneralFuseGroupPtr consumer2{nullptr};
+    for (const auto& iter1 : consumer_set) {
+      for (const auto& iter2 : consumer_set) {
+        if (iter1 == iter2) {
+          continue;
+        }
+        if (pass_ctx_->CanHorizontalFuse(iter1, iter2)) {
+          consumer1 = iter1;
+          consumer2 = iter2;
+        }
+      }
+      if (consumer1.get()) {
+        break;
+      }
+    }
+
+    // Do Fuse
+
+    // Update Tag
   }
 
   bool DoHorizontalFusion() {
@@ -436,12 +481,11 @@ class FusionMergePassHelper : public FusionHelperBase {
     // if use recompute
     if (fuse_consumers_unsafe.size() == producer->consumer_groups.size() &&
         producer->op_pattern_kind == framework::kElementWise) {
-      if (!recompute) {
-        return false;
-      } else {
-        RecomputeEleGraph(producer, fuse_consumers_unsafe);
+      if (recompute) {
         VerticalFuse(producer, fuse_consumers_unsafe);
         return true;
+      } else {
+        return false;
       }
     }
 
@@ -637,12 +681,6 @@ class FusionMergePassHelper : public FusionHelperBase {
       consumer_and_list.first->producer_groups.erase(producer);
       // TODO: Do not add any TensorInterface into any TensorInterfaceList in this file which will be deprecated.
       consumer_and_list.first->producer_groups[master_fuesd_group] += {};
-    }
-  }
-
-  void RecomputeEleGraph(const GroupPtr& producer, std::unordered_set<GroupPtr>& fusionable_consumers) {
-    if (producer->op_pattern_kind != framework::kElementWise) {
-      SelectConsumerToFuse(producer, fusionable_consumers);
     }
   }
 
@@ -1006,6 +1044,7 @@ class FusionMergePassHelper : public FusionHelperBase {
   GroupList fusion_groups_;
   std::unordered_map<GroupPtr, int> fusion_groups_index_;
   std::unordered_map<NodeData*, std::unordered_set<GroupPtr>> input_to_consumers_;
+  std::unique_ptr<GeneralFusePassContext> pass_ctx_{nullptr};
 
   struct Relation {
     std::unordered_map<framework::OpPatternKind, ConditionFunction> vertical_relation;

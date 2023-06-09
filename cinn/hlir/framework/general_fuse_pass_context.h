@@ -14,27 +14,27 @@
 
 #pragma once
 
-#include <memory>
-#include <unordered_set>
-
-#include "cinn/hlir/framework/tensor_interface.h"
-#include "cinn/hlir/framework/tensor_interface_list.h"
+#include "cinn/hlir/framework/fuse_pass_context.h"
+#include "cinn/hlir/framework/general_fuse_group.h"
+#include "cinn/hlir/framework/graph.h"
 
 namespace cinn {
 namespace hlir {
 namespace framework {
 
-class OpGroupInterface {
+class GeneralFusePassContext : public FusePassContext {
  public:
-  virtual const TensorInterfaceList& input_tensors() const = 0;
+  GeneralFusePassContext(const Graph& graph);
 
-  virtual const TensorInterfaceList& output_tensors() const = 0;
+  std::shared_ptr<GeneralFuseGroup> PickGroup();
 
-  virtual const std::unordered_set<std::shared_ptr<OpGroupInterface>> producers() const = 0;
+  void EnableRecompute(const GeneralFuseGroup& op_group);
 
-  virtual const std::unordered_set<std::shared_ptr<OpGroupInterface>> consumers() const = 0;
+  void EnableVerticalFuse(const GeneralFuseGroup& first_op_group, const GeneralFuseGroup& second_op_group);
 
-  protect : OpGroupInterface() = default;
+  void EnableHorizontalFuse(const GeneralFuseGroup& first_op_group, const GeneralFuseGroup& second_op_group);
+
+  bool CanHorizontalFuse()
 };
 
 }  // namespace framework
