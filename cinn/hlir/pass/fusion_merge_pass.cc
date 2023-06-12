@@ -47,7 +47,7 @@ class FusionMergePassHelper : public FusionHelperBase {
  public:
   FusionMergePassHelper(const Graph* graph) : FusionHelperBase(graph) {
     fusion_groups_ = graph->fusion_groups;
-    pass_ctx_      = std::make_unique<GeneralFusePassContext>(*graph);
+    // pass_ctx_      = std::make_unique<GeneralFusePassContext>(*graph);
     // init fusion relation.
     InitFusionRelation();
     // init input to consumers.
@@ -79,26 +79,26 @@ class FusionMergePassHelper : public FusionHelperBase {
  private:
   void DoFusionMerge() {
     VLOG(3) << "DoFusionMerge...!";
-    bool update = true;
-    while (update) {
-      update = false;
-      // TODO: Iterate All TagPasses
-      // for (const auto& tag_pass: PassManager.Instance().AllPasses()) {
-      while (TryHorizontalFusion()) {
-        update = true;
-      }
-      // TODO: Implemente TryRecompute and TryVerticalFusion
-      // while (TryRecompute()) { update = true; }
-      // while (TryVerticalFusion()) { update = true; }
-      // }
-    }
+    // bool update = true;
+    // while (update) {
+    //   update = false;
+    //   // TODO: Iterate All TagPasses
+    //   // for (const auto& tag_pass: PassManager.Instance().AllPasses()) {
+    //   while (TryHorizontalFusion()) {
+    //     update = true;
+    //   }
+    //   // TODO: Implemente TryRecompute and TryVerticalFusion
+    //   // while (TryRecompute()) { update = true; }
+    //   // while (TryVerticalFusion()) { update = true; }
+    //   // }
+    // }
 
-    // while (DoHorizontalFusion()) {
-    // }
-    // while (DoVerticalFusion(/* recompute=*/false)) {
-    // }
-    // while (DoVerticalFusion(/* recompute=*/true)) {
-    // }
+    while (DoHorizontalFusion()) {
+    }
+    while (DoVerticalFusion(/* recompute=*/false)) {
+    }
+    while (DoVerticalFusion(/* recompute=*/true)) {
+    }
   }
 
   bool TryHorizontalFusion() {
@@ -1193,7 +1193,7 @@ class FusionMergePassHelper : public FusionHelperBase {
   GroupList fusion_groups_;
   std::unordered_map<GroupPtr, int> fusion_groups_index_;
   std::unordered_map<NodeData*, std::unordered_set<GroupPtr>> input_to_consumers_;
-  std::unique_ptr<GeneralFusePassContext> pass_ctx_{nullptr};
+  // std::unique_ptr<GeneralFusePassContext> pass_ctx_{nullptr};
 
   struct Relation {
     std::unordered_map<framework::OpPatternKind, ConditionFunction> vertical_relation;

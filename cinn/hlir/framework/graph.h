@@ -130,11 +130,11 @@ class Graph : public cinn::common::Graph {
 
     std::string GetFuncName() { return "fn_" + group_id + unique_id; }
 
-   private:
+    //  private:
     // input groups
-    std::unordered_map<std::shared_ptr<OpGroupInterface>, TensorInterfaceList> producer_groups_;
+    std::unordered_map<std::shared_ptr<Group>, TensorInterfaceList> producer_groups_;
     // output grous
-    std::unordered_map<std::shared_ptr<OpGroupInterface>, TensorInterfaceList> consumer_groups;
+    std::unordered_map<std::shared_ptr<Group>, TensorInterfaceList> consumer_groups;
   };
   std::vector<std::shared_ptr<Group>> fusion_groups;
 
