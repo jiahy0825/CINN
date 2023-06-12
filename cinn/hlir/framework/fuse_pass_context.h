@@ -25,13 +25,13 @@ class FusePassContext {
  public:
   FusePassContext() = default;
 
-  std::shared_ptr<OpGroupInterface> PickGroup();
+  virtual std::shared_ptr<OpGroupInterface> PickGroup() = 0;
 
-  void EnableRecompute(const OpGroupInterface& op_group);
+  virtual void EnableRecompute(const OpGroupInterface& op_group) = 0;
 
-  void EnableVerticalFuse(const OpGroupInterface& first_op_group, const OpGroupInterface& second_op_group);
+  virtual void EnableVerticalFuse(const OpGroupInterface& first_op_group, const OpGroupInterface& second_op_group) = 0;
 
-  void EnableHorizontalFuse(const OpGroupInterface& first_op_group, const OpGroupInterface& second_op_group);
+  virtual void EnableHorizontalFuse(const OpGroupInterface& first_op_group, const OpGroupInterface& second_op_group) = 0;
 
 };
 
