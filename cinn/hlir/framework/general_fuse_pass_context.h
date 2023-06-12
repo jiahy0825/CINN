@@ -35,8 +35,10 @@ class GeneralFusePassContext : public FusePassContext {
 
   bool CanHorizontalFuse(const OpGroupInterface& iter1, const OpGroupInterface& iter2);
 
-  void CleanGroup(const OpGroupInterface& group);
+  // Delete old Group
+  void DeleteGroup(const OpGroupInterface& group);
 
+  // Insert new Group
   void InsertGroup(const OpGroupInterface& group);
 };
 

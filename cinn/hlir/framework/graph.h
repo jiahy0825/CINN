@@ -56,7 +56,8 @@ class Graph : public cinn::common::Graph {
   absl::flat_hash_map<std::string, std::shared_ptr<absl::any>> attrs;
 
   std::vector<std::vector<Node*>> groups;
-  class Group : public OpGroupInterface {
+  class Group final : public OpGroupInterface {
+   public:
     // distance to last group.
     int depth{0};
     int max_depth{0};
@@ -80,10 +81,6 @@ class Graph : public cinn::common::Graph {
     // master node for schedule
     std::unordered_set<Node*> master_nodes;
 
-    // input groups
-    std::unordered_map<std::shared_ptr<Group>, TensorInterfaceList> producer_groups;
-    // output grous
-    std::unordered_map<std::shared_ptr<Group>, TensorInterfaceList> consumer_groups;
     // fused sub-groups, used for fusion merge pass
     std::vector<std::shared_ptr<Group>> fused_sub_groups;
     // if as sub-group, used for belong groups.
@@ -92,6 +89,13 @@ class Graph : public cinn::common::Graph {
     // for op lowering.
     std::vector<std::string> input_names;
     std::vector<std::string> output_names;
+
+    const std::unordered_map<std::shared_ptr<OpGroupInterface>, TensorInterfaceList>& producer_groups() const override {
+      return producer_groups_;
+    }
+    std::unordered_map<std::shared_ptr<OpGroupInterface>, TensorInterfaceList>* mut_producer_groups() {
+      return &producer_groups_;
+    }
 
     std::unordered_set<std::shared_ptr<Group>> CollectConsumerGroups() {
       std::unordered_set<std::shared_ptr<Group>> groups;
@@ -125,6 +129,12 @@ class Graph : public cinn::common::Graph {
     std::unordered_set<NodeData*> GetOutputNodeDatas();
 
     std::string GetFuncName() { return "fn_" + group_id + unique_id; }
+
+   private:
+    // input groups
+    std::unordered_map<std::shared_ptr<OpGroupInterface>, TensorInterfaceList> producer_groups_;
+    // output grous
+    std::unordered_map<std::shared_ptr<OpGroupInterface>, TensorInterfaceList> consumer_groups;
   };
   std::vector<std::shared_ptr<Group>> fusion_groups;
 
