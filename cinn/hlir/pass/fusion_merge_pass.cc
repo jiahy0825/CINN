@@ -16,6 +16,7 @@
 #include "cinn/hlir/pass/fusion_merge_pass_util.h"
 
 DECLARE_bool(enhance_vertical_fusion_with_recompute);
+DECLARE_bool(use_new_pass_api);
 
 namespace cinn {
 namespace hlir {
@@ -34,7 +35,7 @@ using GroupPtr  = std::shared_ptr<Graph::Group>;
 using GroupList = std::vector<GroupPtr>;
 
 using OpGroupInterfacePtr = std::shared_ptr<OpGroupInterface>;
-using OpGroupInterfaceSet = std::unordered_set<OpGroupInterface>;
+using OpGroupInterfaceSet = std::unordered_set<OpGroupInterfacePtr>;
 
 using ConditionFunction = std::function<bool(const FusionHelperBase*, const GroupPtr&, const GroupPtr&)>;
 
@@ -46,7 +47,7 @@ class FusionMergePassHelper : public FusionHelperBase {
  public:
   FusionMergePassHelper(const Graph* graph) : FusionHelperBase(graph) {
     fusion_groups_ = graph->fusion_groups;
-    // pass_ctx_      = std::make_unique<GeneralFusePassContext>(*graph);
+    pass_ctx_      = std::make_unique<GeneralFusePassContext>(*graph);
     // init fusion relation.
     InitFusionRelation();
     // init input to consumers.
@@ -78,201 +79,229 @@ class FusionMergePassHelper : public FusionHelperBase {
  private:
   void DoFusionMerge() {
     VLOG(3) << "DoFusionMerge...!";
-    // bool update = true;
-    // while (update) {
-    //   update = false;
-    //   // TODO: Iterate All TagPasses
-    //   // for (const auto& tag_pass: PassManager.Instance().AllPasses()) {
-    //   while (TryHorizontalFusion()) {
-    //     update = true;
-    //   }
-    //   // TODO: Implemente TryRecompute and TryVerticalFusion
-    //   // while (TryRecompute()) { update = true; }
-    //   // while (TryVerticalFusion()) { update = true; }
-    //   // }
-    // }
 
-    while (DoHorizontalFusion()) {
-    }
-    while (DoVerticalFusion(/* recompute=*/false)) {
-    }
-    while (DoVerticalFusion(/* recompute=*/true)) {
+    if (FLAGS_use_new_pass_api) {
+      bool update = true;
+      while (update) {
+        update = false;
+        // TODO: Iterate All TagPasses
+        for (std::size_t i = 0; i < PassManager.LightPassSize(); i++) {
+          const auto& tag_pass = PassManager.Instance().AllLightPasses()[i];
+          while (tag_pass.Apply()) {
+            while (TryHorizontalFusion()) {
+              update = true;
+            }
+            // TODO: Implemente TryRecompute and TryVerticalFusion
+            while (TryRecompute()) {
+              update = true;
+            }
+            while (TryVerticalFusion()) {
+              update = true;
+            }
+          }
+        }
+        for (const auto& tag_pass : PassManager.Instance().AllHeavyPasses()) {
+          tag_pass.Apply();
+        }
+        while (TryHeavyFuse()) {
+          update = true;
+        }
+      }
+    } else {
+      while (DoHorizontalFusion()) {
+      }
+      while (DoVerticalFusion(/* recompute=*/false)) {
+      }
+      while (DoVerticalFusion(/* recompute=*/true)) {
+      }
     }
   }
 
-  // bool TryHorizontalFusion() {
-  //   // Judge
-  //   std::shared_ptr<OpGroupInterface> group_if = pass_ctx_->PickGroup();
-  //   OpGroupInterfaceSet consumer_set           = group_if->consumers();
-  //   OpGroupInterfacePtr consumer1{nullptr};
-  //   OpGroupInterfacePtr consumer2{nullptr};
-  //   for (const auto& iter1 : consumer_set) {
-  //     for (const auto& iter2 : consumer_set) {
-  //       if (iter1 == iter2) {
-  //         continue;
-  //       }
-  //       if (pass_ctx_->CanHorizontalFuse(*iter1, *iter2)) {
-  //         consumer1 = iter1;
-  //         consumer2 = iter2;
-  //         break;
-  //       }
-  //     }
-  //     if (consumer1.get()) {
-  //       break;
-  //     }
-  //   }
-  //   // No Loop Guarantee
-  //   // DetectCycleIfFused(group, consumer_set);
-  //   // DetectCycleIfFused(consumer_set, consumer1, consumer2);
+  // Greedily fuse two consumers together
+  bool TryHorizontalFusion() {
+    // *********** Judge ***********
+    // TODO1: finish PickGroup and consumers
+    std::shared_ptr<OpGroupInterface> group_if = pass_ctx_->PickHorizontalGroup();
+    OpGroupInterfaceSet consumer_set           = group_if->consumers();
+    OpGroupInterfacePtr consumer_if1{nullptr};
+    OpGroupInterfacePtr consumer_if2{nullptr};
+    for (const auto& iter1 : consumer_set) {
+      for (const auto& iter2 : consumer_set) {
+        if (iter1 == iter2) {
+          continue;
+        }
+        // TODO2: finish CanHorizontalFuse
+        if (pass_ctx_->CanHorizontalFuse(*iter1, *iter2)) {
+          consumer_if1 = iter1;
+          consumer_if2 = iter2;
+          break;
+        }
+      }
+      if (consumer_if1.get()) {
+        break;
+      }
+    }
+    if (!consumer_if1.get() || !consumer_if2.get()) {
+      return false;
+    }
+    // *********** Constrain ***********
+    // No Loop Guarantee
+    // TODO3: Use bfs or dfs to detect cycle after merge
+    // DetectCycleIfFused(group, consumer_set);
+    // DetectCycleIfFused(consumer_set, consumer1, consumer2);
 
-  //   std::shared_ptr<GeneralFuseGroup> fused_group = std::make_shared<GeneralFuseGroup>();
+    // *********** Fuse ***********
+    VLOG(3) << "TryHorizontalFusion ...";
+    // create fusion group
+    auto fused_group   = std::make_shared<Graph::Group>();
+    GroupPtr consumer1 = std::dynamic_pointer_cast<GroupPtr>(consumer_if1);
+    GroupPtr consumer2 = std::dynamic_pointer_cast<GroupPtr>(consumer_if2);
 
-  //   VLOG(3) << "HorizontalFuse Groups...";
-  //   // create fusion group
-  //   auto fused_group = std::make_shared<Graph::Group>();
-  //   // As recompute exist which may case sub-group used by more than one time.
-  //   std::vector<GroupPtr> repeat_sub_groups;
-  //   std::unordered_set<GroupPtr> sub_group_set;
-  //   // find the first consumer.
-  //   GroupPtr first_consumer(nullptr);
-  //   // fuse all group into fusion group.
-  //   for (auto& consumer : consumers) {
-  //     VLOG(3) << "fuse consumer " << consumer->group_id << " into fused_group!";
-  //     // update depth
-  //     fused_group->max_depth = std::max(fused_group->max_depth, consumer->max_depth);
-  //     fused_group->min_depth = std::min(fused_group->min_depth, consumer->min_depth);
-  //     // update group id
-  //     if (fused_group->group_id.size()) {
-  //       fused_group->group_id += "_" + consumer->group_id;
-  //     } else {
-  //       fused_group->group_id = consumer->group_id;
-  //     }
-  //     // set op pattern kind
-  //     fused_group->op_pattern_kind =
-  //         static_cast<int>(fused_group->op_pattern_kind) >= static_cast<int>(consumer->op_pattern_kind)
-  //             ? fused_group->op_pattern_kind
-  //             : consumer->op_pattern_kind;
-  //     // input nodes
-  //     for (auto& node : consumer->input_nodes) {
-  //       if (fused_group->input_nodes.count(node.first)) {
-  //         fused_group->input_nodes[node.first] += node.second;
-  //       } else {
-  //         fused_group->input_nodes.insert(node);
-  //       }
-  //     }
-  //     // output node
-  //     for (auto& node : consumer->output_nodes) {
-  //       fused_group->output_nodes.insert(node);
-  //     }
-  //     // internal node
-  //     if (consumer->fused_sub_groups.size()) {
-  //       for (auto& node : consumer->internal_nodes) {
-  //         fused_group->internal_nodes.insert(node);
-  //       }
-  //     }
-  //     // master node
-  //     for (auto& node : consumer->master_nodes) {
-  //       if (GetOpKind(node) == framework::kReduction) {
-  //         fused_group->master_nodes.insert(node);
-  //       }
-  //     }
-  //     // insert sub group
-  //     if (consumer->fused_sub_groups.size()) {
-  //       for (auto& sub_group : consumer->fused_sub_groups) {
-  //         // check sub group is repeat.
-  //         if (sub_group_set.count(sub_group)) {
-  //           VLOG(3) << sub_group->group_id << " is repeated!";
-  //           repeat_sub_groups.push_back(sub_group);
-  //           continue;
-  //         }
-  //         // record sub group
-  //         sub_group_set.insert(sub_group);
+    VLOG(3) << "fuse consumer1 " << consumer1->group_id << " and consumer2 " << consumer2->group_id
+            << " into fused_group!";
 
-  //         // insert to fused sub group.
-  //         fused_group->fused_sub_groups.push_back(sub_group);
-  //         // update belongs group
-  //         sub_group->belong_groups.erase(consumer);
-  //         sub_group->belong_groups.insert(fused_group);
-  //       }
-  //     } else {
-  //       fused_group->fused_sub_groups.push_back(consumer);
-  //     }
-  //     // producer group
-  //     for (const auto& producer_and_list : consumer->producer_groups) {
-  //       fused_group->producer_groups[producer_and_list.first] += producer_and_list.second;
-  //       // update producer's consumer
-  //       producer_and_list.first->consumer_groups.erase(consumer);
-  //       // TODO: Do not add any TensorInterface into any TensorInterfaceList in this file which will be deprecated.
-  //       producer_and_list.first->consumer_groups[fused_group] += {};
-  //     }
-  //     // consumer group
-  //     for (const auto& gconsumer_and_list : consumer->consumer_groups) {
-  //       fused_group->consumer_groups[gconsumer_and_list.first] += gconsumer_and_list.second;
-  //       // update consumer's producer
-  //       gconsumer_and_list.first->producer_groups.erase(consumer);
-  //       // TODO: Do not add any TensorInterface into any TensorInterfaceList in this file which will be deprecated.
-  //       gconsumer_and_list.first->producer_groups[fused_group] += {};
-  //     }
-  //     // belongs group
-  //     consumer->belong_groups.insert(fused_group);
+    // NOTE for compatible: update depth, compatible with origin pass
+    // To keep compatible with origin pass, keep these two lines temporarily.
+    fused_group->max_depth = std::max(consumer1->max_depth, consumer2->max_depth);
+    fused_group->min_depth = std::min(consumer1->min_depth, consumer2->min_depth);
+    // update group id
+    fused_group->group_id += consumer1->group_id + "_" + consumer2->group_id;
+    // set op pattern kind
+    // NOTE: inner FusePass can use pattern_kind directly
+    fused_group->op_pattern_kind =
+        static_cast<int>(consumer1->op_pattern_kind) >= static_cast<int>(consumer2->op_pattern_kind)
+            ? consumer1->op_pattern_kind
+            : consumer2->op_pattern_kind;
 
-  //     // find the first consumer.
-  //     CHECK(fusion_groups_index_.count(consumer))
-  //         << "Can't find consumer " << consumer->group_id << " index in fusion_groups_index_!";
-  //     if (first_consumer.get()) {
-  //       if (fusion_groups_index_[consumer] < fusion_groups_index_[first_consumer]) {
-  //         first_consumer = consumer;
-  //       }
-  //     } else {
-  //       first_consumer = consumer;
-  //     }
-  //   }
+    // As recompute exist which may case sub-group used by more than one time.
+    std::vector<GroupPtr> repeat_sub_groups;
+    std::unordered_set<GroupPtr> sub_group_set;
 
-  //   // if node is output nodes of sub_group, check it can't be internal node.
-  //   for (auto& sub_group : repeat_sub_groups) {
-  //     // check each output node in sub_group.
-  //     for (auto& node : sub_group->output_nodes) {
-  //       // if node is not output node of fused_group.
-  //       if (!fused_group->output_nodes.count(node)) {
-  //         fused_group->internal_nodes.insert(node);
-  //       }
-  //     }
-  //   }
+    std::array<GroupPtr, 2> consumers{consumer1, consumer2};
+    for (GroupPtr consumer : consumers) {
+      // update input nodes
+      for (auto& node : consumer->input_nodes) {
+        if (fused_group->input_nodes.count(node.first)) {
+          fused_group->input_nodes[node.first] += node.second;
+        } else {
+          fused_group->input_nodes.insert(node);
+        }
+      }
+      // update output node
+      for (auto& node : consumer->output_nodes) {
+        fused_group->output_nodes.insert(node);
+      }
+      // update internal node
+      if (consumer->fused_sub_groups.size()) {
+        for (auto& node : consumer->internal_nodes) {
+          fused_group->internal_nodes.insert(node);
+        }
+      }
+      // update master node
+      for (auto& node : consumer->master_nodes) {
+        if (GetOpKind(node) == framework::kReduction) {
+          fused_group->master_nodes.insert(node);
+        }
+      }
+      // insert sub group
+      if (consumer->fused_sub_groups.size()) {
+        for (auto& sub_group : consumer->fused_sub_groups) {
+          // check sub group is repeat.
+          if (sub_group_set.count(sub_group)) {
+            VLOG(3) << sub_group->group_id << " is repeated!";
+            repeat_sub_groups.push_back(sub_group);
+            continue;
+          }
+          // record sub group
+          sub_group_set.insert(sub_group);
 
-  //   if (static_cast<int>(framework::kReduction) > static_cast<int>((consumers.back())->op_pattern_kind)) {
-  //     auto consumer = consumers.back();
+          // insert to fused sub group.
+          fused_group->fused_sub_groups.push_back(sub_group);
+          // update belongs group
+          sub_group->belong_groups.erase(consumer);
+          sub_group->belong_groups.insert(fused_group);
+        }
+      } else {
+        fused_group->fused_sub_groups.push_back(consumer);
+      }
 
-  //     for (auto& node : consumer->master_nodes) {
-  //       fused_group->master_nodes.insert(node);
-  //     }
-  //   } else {
-  //     for (auto consumer = consumers.rbegin(); consumer != consumers.rend(); ++consumer) {
-  //       Node* master_node = nullptr;
-  //       for (auto& node : (*consumer)->master_nodes) {
-  //         if (GetOpKind(node) != framework::kReduction) {
-  //           master_node = node;
-  //           break;
-  //         }
-  //       }
-  //       if (master_node) {
-  //         VLOG(3) << "Insert Master node : " << master_node->id() << " into group : " << fused_group->group_id;
-  //         fused_group->master_nodes.insert(master_node);
-  //         break;
-  //       }
-  //     }
-  //   }
+      // producer group
+      for (const auto& producer_and_list : consumer->producer_groups) {
+        fused_group->producer_groups[producer_and_list.first] += producer_and_list.second;
+        // update producer's consumer
+        producer_and_list.first->consumer_groups.erase(consumer);
+        // NOTE: update producer's consumer TensorInterfaceList
+        producer_and_list.first->consumer_groups[fused_group] += producer_and_list.second;
+      }
+      // consumer group
+      for (const auto& gconsumer_and_list : consumer->consumer_groups) {
+        fused_group->consumer_groups[gconsumer_and_list.first] += gconsumer_and_list.second;
+        // update consumer's producer
+        gconsumer_and_list.first->producer_groups.erase(consumer);
+        // NOTE: update consumer's producer TensorInterfaceList
+        gconsumer_and_list.first->producer_groups[fused_group] += gconsumer_and_list.second;
+      }
+      // belongs group
+      consumer->belong_groups.insert(fused_group);
+    }
 
-  //   auto postion                      = fusion_groups_index_[first_consumer];
-  //   fusion_groups_[postion]           = fused_group;
-  //   fusion_groups_index_[fused_group] = postion;
+    // NOTE: This part seems redundent, trick for recompute?
+    // if node is output nodes of sub_group, check it can't be internal node.
+    for (auto& sub_group : repeat_sub_groups) {
+      // check each output node in sub_group.
+      for (auto& node : sub_group->output_nodes) {
+        // if node is not output node of fused_group.
+        if (!fused_group->output_nodes.count(node)) {
+          fused_group->internal_nodes.insert(node);
+        }
+      }
+    }
+    // NOTE for compatible: Trick for master node, keep for origin pass
+    if (static_cast<int>(framework::kReduction) > static_cast<int>((consumers.back())->op_pattern_kind)) {
+      auto consumer = consumers.back();
 
-  //   CHECK(fused_group->output_nodes.size()) << "No output node is found, " << fused_group->group_id;
+      for (auto& node : consumer->master_nodes) {
+        fused_group->master_nodes.insert(node);
+      }
+    } else {
+      for (auto consumer = consumers.rbegin(); consumer != consumers.rend(); ++consumer) {
+        Node* master_node = nullptr;
+        for (auto& node : (*consumer)->master_nodes) {
+          if (GetOpKind(node) != framework::kReduction) {
+            master_node = node;
+            break;
+          }
+        }
+        if (master_node) {
+          VLOG(3) << "Insert Master node : " << master_node->id() << " into group : " << fused_group->group_id;
+          fused_group->master_nodes.insert(master_node);
+          break;
+        }
+      }
+    }
 
-  //   // Update Tag
-  //   pass_ctx_->CleanGroup(*consumer1);
-  //   pass_ctx_->CleanGroup(*consumer2);
-  //   pass_ctx_->InsertGroup(*fused_group);
-  // }
+    // NOTE for compatible: first_consumer is used to update fusion_groups_index_. To keep compatible with origin pass,
+    // keep first_consumer temporarily. find the first consumer
+    GroupPtr first_consumer(nullptr);
+    // find the first consumer.
+    CHECK(fusion_groups_index_.count(consumer1))
+        << "Can't find consumer " << consumer1->group_id << " index in fusion_groups_index_!";
+    CHECK(fusion_groups_index_.count(consumer2))
+        << "Can't find consumer " << consumer2->group_id << " index in fusion_groups_index_!";
+    first_consumer = fusion_groups_index_[consumer1] < fusion_groups_index_[consumer2] ? consumer1 : consumer2;
+
+    auto postion                      = fusion_groups_index_[first_consumer];
+    fusion_groups_[postion]           = fused_group;
+    fusion_groups_index_[fused_group] = postion;
+
+    CHECK(fused_group->output_nodes.size()) << "No output node is found, " << fused_group->group_id;
+
+    // *********** Update PassCtx ***********
+    pass_ctx_->DeleteGroup(*consumer1);
+    pass_ctx_->DeleteGroup(*consumer2);
+    pass_ctx_->InsertGroup(*fused_group);
+    return true;
+  }
 
   bool DoHorizontalFusion() {
     VLOG(3) << "DoHorizontalFusion...!";
@@ -548,7 +577,7 @@ class FusionMergePassHelper : public FusionHelperBase {
         }
       }
     }
-
+    // 此处要求 consumers 有序(否则为何获取 consumers.back)？这个 trick 是干嘛的？
     if (static_cast<int>(framework::kReduction) > static_cast<int>((consumers.back())->op_pattern_kind)) {
       auto consumer = consumers.back();
 
@@ -629,11 +658,12 @@ class FusionMergePassHelper : public FusionHelperBase {
     // if use recompute
     if (fuse_consumers_unsafe.size() == producer->consumer_groups.size() &&
         producer->op_pattern_kind == framework::kElementWise) {
-      if (recompute) {
+      if (!recompute) {
+        return false;
+      } else {
+        RecomputeEleGraph(producer, fuse_consumers_unsafe);
         VerticalFuse(producer, fuse_consumers_unsafe);
         return true;
-      } else {
-        return false;
       }
     }
 
@@ -829,6 +859,12 @@ class FusionMergePassHelper : public FusionHelperBase {
       consumer_and_list.first->producer_groups.erase(producer);
       // TODO: Do not add any TensorInterface into any TensorInterfaceList in this file which will be deprecated.
       consumer_and_list.first->producer_groups[master_fuesd_group] += {};
+    }
+  }
+
+  void RecomputeEleGraph(const GroupPtr& producer, std::unordered_set<GroupPtr>& fusionable_consumers) {
+    if (producer->op_pattern_kind != framework::kElementWise) {
+      SelectConsumerToFuse(producer, fusionable_consumers);
     }
   }
 
@@ -1192,7 +1228,7 @@ class FusionMergePassHelper : public FusionHelperBase {
   GroupList fusion_groups_;
   std::unordered_map<GroupPtr, int> fusion_groups_index_;
   std::unordered_map<NodeData*, std::unordered_set<GroupPtr>> input_to_consumers_;
-  // std::unique_ptr<GeneralFusePassContext> pass_ctx_{nullptr};
+  std::unique_ptr<GeneralFusePassContext> pass_ctx_{nullptr};
 
   struct Relation {
     std::unordered_map<framework::OpPatternKind, ConditionFunction> vertical_relation;

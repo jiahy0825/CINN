@@ -57,7 +57,7 @@ class Graph : public cinn::common::Graph {
   absl::flat_hash_map<std::string, std::shared_ptr<absl::any>> attrs;
 
   std::vector<std::vector<Node*>> groups;
-  class Group final : public OpGroupInterface {
+  struct Group final : public OpGroupInterface {
    public:
     // distance to last group.
     int depth{0};
@@ -91,6 +91,7 @@ class Graph : public cinn::common::Graph {
     std::vector<std::string> input_names;
     std::vector<std::string> output_names;
 
+    // TODO: make producer_groups_ and consumer_groups_ private
     // const std::unordered_map<std::shared_ptr<OpGroupInterface>, TensorInterfaceList>& producer_groups() const
     // override {
     //   return producer_groups_;

@@ -131,6 +131,8 @@ DEFINE_bool(enhance_vertical_fusion_with_recompute,
             BoolFromEnv("FLAGS_enhance_vertical_fusion_with_recompute", true),
             "Whether to enhance check logic on vertical fusion with recompute");
 
+DEFINE_bool(use_new_pass_api, BoolFromEnv("FLAGS_use_new_pass_api", false), "Whether use new pass api");
+
 DEFINE_bool(verbose_function_register,
             BoolFromEnv("FLAGS_verbose_function_register", false),
             "Whether to verbose function regist log. This will only work if CINN build with flag -DWITH_DEBUG=ON.");
