@@ -24,6 +24,7 @@
 #include "cinn/common/graph_utils.h"
 #include "cinn/frontend/syntax.h"
 #include "cinn/hlir/framework/node.h"
+#include "cinn/hlir/framework/op_group_interface.h"
 #include "cinn/hlir/framework/tensor_interface_list.h"
 
 namespace cinn {
@@ -90,12 +91,21 @@ class Graph : public cinn::common::Graph {
     std::vector<std::string> input_names;
     std::vector<std::string> output_names;
 
-    const std::unordered_map<std::shared_ptr<OpGroupInterface>, TensorInterfaceList>& producer_groups() const override {
-      return producer_groups_;
-    }
-    std::unordered_map<std::shared_ptr<OpGroupInterface>, TensorInterfaceList>* mut_producer_groups() {
-      return &producer_groups_;
-    }
+    // const std::unordered_map<std::shared_ptr<OpGroupInterface>, TensorInterfaceList>& producer_groups() const
+    // override {
+    //   return producer_groups_;
+    // }
+    // std::unordered_map<std::shared_ptr<OpGroupInterface>, TensorInterfaceList>* mut_producer_groups() {
+    //   return &producer_groups_;
+    // }
+
+    const TensorInterfaceList& input_tensors() const override {}
+
+    const TensorInterfaceList& output_tensors() const override {}
+
+    const std::unordered_set<std::shared_ptr<OpGroupInterface>> producers() const override {}
+
+    const std::unordered_set<std::shared_ptr<OpGroupInterface>> consumers() const override {}
 
     std::unordered_set<std::shared_ptr<Group>> CollectConsumerGroups() {
       std::unordered_set<std::shared_ptr<Group>> groups;
@@ -132,7 +142,7 @@ class Graph : public cinn::common::Graph {
 
     //  private:
     // input groups
-    std::unordered_map<std::shared_ptr<Group>, TensorInterfaceList> producer_groups_;
+    std::unordered_map<std::shared_ptr<Group>, TensorInterfaceList> producer_groups;
     // output grous
     std::unordered_map<std::shared_ptr<Group>, TensorInterfaceList> consumer_groups;
   };
