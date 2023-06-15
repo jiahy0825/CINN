@@ -15,30 +15,29 @@
 #pragma once
 
 #include <memory>
+#include <unordered_set>
+
+#include "cinn/api/op_interface.h"
+#include "cinn/utils/small_vector.h"
 
 namespace cinn {
 namespace api {
 
-class OpInterface;
-
-class ShapeInterface;
-
-class TensorInterface {
+class OpInterfaceList : public cinn::utils::SmallVector<OpInterfacePtr, 16> {
  public:
-  // Get the shape of tensor.
-  virtual const ShapeInterface& shape() const = 0;
+  using cinn::utils::SmallVector<OpInterfacePtr, 16>::SmallVector;
 
-  virtual const std::shared_ptr<OpInterface>& producer() const = 0;
-
-  virtual const std::vector<std::shared_ptr<OpInterface>>& consumers() const = 0;
-
- protected:
-  TensorInterface()                       = default;
-  TensorInterface(const TensorInterface&) = delete;
-  TensorInterface(TensorInterface&&)      = delete;
+  OpInterfaceList& operator+=(const OpInterfaceList& other) {
+    std::unordered_set<OpInterfacePtr> op_set(this->begin(), this->end());
+    for (const auto& op : other) {
+      if (op_set.find(op) == op_set.end()) {
+        this->push_back(op);
+        op_set.insert(op);
+      }
+    }
+    return *this;
+  }
 };
-
-using TensorInterfacePtr = std::shared_ptr<TensorInterface>;
 
 }  // namespace api
 }  // namespace cinn
