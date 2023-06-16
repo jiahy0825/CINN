@@ -41,12 +41,7 @@ using GroupList = std::vector<GroupPtr>;
 using OpGroupPtr  = std::shared_ptr<api::OpGroupInterface>;
 using OpGroupList = std::vector<OpGroupPtr>;
 
-<<<<<<< HEAD
-using ConditionFunction = std::function<bool(const FusionHelperBase*, const GroupPtr&, const GroupPtr&)>;
-
-=======
 class GraphGroupLightwareFusePassCtx;
->>>>>>> Delete unused codes
 class FuseHelper {
  public:
   virtual ~FuseHelper() = default;
