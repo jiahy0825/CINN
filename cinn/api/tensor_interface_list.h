@@ -23,12 +23,12 @@
 namespace cinn {
 namespace api {
 
-class TensorInterfaceList : public cinn::utils::SmallVector<TensorInterfacePtr, 16> {
+class TensorInterfaceList : public cinn::utils::SmallVector<std::shared_ptr<TensorInterface>, 16> {
  public:
-  using cinn::utils::SmallVector<TensorInterfacePtr, 16>::SmallVector;
+  using cinn::utils::SmallVector<std::shared_ptr<TensorInterface>, 16>::SmallVector;
 
   TensorInterfaceList& operator+=(const TensorInterfaceList& other) {
-    std::unordered_set<TensorInterfacePtr> tensor_set(this->begin(), this->end());
+    std::unordered_set<std::shared_ptr<TensorInterface>> tensor_set(this->begin(), this->end());
     for (const auto& tensor_if : other) {
       if (tensor_set.find(tensor_if) == tensor_set.end()) {
         this->push_back(tensor_if);

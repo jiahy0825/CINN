@@ -29,10 +29,10 @@ using Attribute = cinn::utils::Attribute;
 
 class OpInterface {
  public:
-  virtual OpPatternKind kind () = 0;
+  virtual OpPatternKind kind () const = 0;
 
-  virtual const TensorInterfaceList& Inputs() = 0;
-  virtual const TensorInterfaceList& Outputs() = 0;
+  virtual const TensorInterfaceList& inputs() const = 0;
+  virtual const TensorInterfaceList& outputs() const = 0;
 
   template <typename T>
   const T& GetAttr(const std::string& attr_name) const {
@@ -44,10 +44,8 @@ class OpInterface {
   OpInterface(const OpInterface&) = delete;
   OpInterface(OpInterface&&)      = delete;
 
-  virtual const Attribute& GetAttr(const std::string& attr_name) = 0;
+  virtual const Attribute& GetAttr(const std::string& attr_name) const = 0;
 };
-
-using OpInterfacePtr = std::shared_ptr<OpInterface>;
 
 }  // namespace api
 }  // namespace cinn

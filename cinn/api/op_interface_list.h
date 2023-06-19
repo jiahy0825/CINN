@@ -23,12 +23,12 @@
 namespace cinn {
 namespace api {
 
-class OpInterfaceList : public cinn::utils::SmallVector<OpInterfacePtr, 16> {
+class OpInterfaceList : public cinn::utils::SmallVector<std::shared_ptr<OpInterface>, 16> {
  public:
-  using cinn::utils::SmallVector<OpInterfacePtr, 16>::SmallVector;
+  using cinn::utils::SmallVector<std::shared_ptr<OpInterface>, 16>::SmallVector;
 
   OpInterfaceList& operator+=(const OpInterfaceList& other) {
-    std::unordered_set<OpInterfacePtr> op_set(this->begin(), this->end());
+    std::unordered_set<std::shared_ptr<OpInterface>> op_set(this->begin(), this->end());
     for (const auto& op : other) {
       if (op_set.find(op) == op_set.end()) {
         this->push_back(op);

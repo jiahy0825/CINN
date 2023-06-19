@@ -25,8 +25,6 @@ namespace api {
 
 class OpGroupInterface {
  public:
-  virtual hlir::framework::OpPatternKind kind() const = 0;
-
   virtual const OpInterfaceList& input_ops() const = 0;
 
   virtual const OpInterfaceList& output_ops() const = 0;
