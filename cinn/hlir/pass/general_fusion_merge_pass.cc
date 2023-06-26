@@ -16,6 +16,8 @@
 #include <unordered_map>
 
 #include "cinn/api/op_group_interface.h"
+#include "cinn/api/op_group.h"
+#include "cinn/api/tensor_node.h"
 #include "cinn/common/is_reachable_predicator.h"
 #include "cinn/common/macros.h"
 #include "cinn/hlir/pass/fusion_merge_pass_util.h"
@@ -39,6 +41,8 @@ using GroupPtr  = std::shared_ptr<Graph::Group>;
 using GroupList = std::vector<GroupPtr>;
 
 using OpGroupPtr  = std::shared_ptr<api::OpGroupInterface>;
+using OpInterfacePtr  = std::shared_ptr<api::OpInterface>;
+using TensorInterfacePtr  = std::shared_ptr<api::TensorInterface>;
 using OpGroupList = std::vector<OpGroupPtr>;
 
 using ConditionFunction = std::function<bool(const FusionHelperBase*, const GroupPtr&, const GroupPtr&)>;
@@ -2012,9 +2016,138 @@ class GeneralFusionMergePassHelper : public FusionHelperBase {
     }
   }
 
+  void InitOpGroups() {
+    // 1. Create op_nodes and tensor_nodes
+    auto create_op_node = [this](const hlir::framework::Node& node)->std::shared_ptr<api::OpNode>{
+      OpPatternKind kind = (*op_pattern_dict_)[node.op()];
+      if (kind == hlir::framework::kBroadcast) {
+        // As binary op was defined as broadcast, actually it should be element-wise.
+        if (node.op()->name != "broadcast_to") {
+          kind = hlir::framework::kElementWise;
+        }
+      }
+      return std::make_shared<api::OpNode>(node, kind);
+    };
+
+    auto create_tensor_node = [this](const hlir::framework::NodeData& node_data)->std::shared_ptr<api::TensorNode>{
+      const hlir::framework::shape_t& shape = shape_dict_.at(node_data.id());
+      api::ShapeInfo tensor_shape(shape);
+      return std::make_shared<api::TensorNode>(node_data, tensor_shape);
+    };
+
+    auto get_input_node_data = [this](const hlir::framework::Node& node) -> std::vector<NodeData*> {
+      auto edges = node.inlinks_in_order();
+      std::vector<NodeData*> result;
+      result.reserve(edges.size());
+      for(auto edge: edges) {
+        result.push_back(edge->source()->safe_as<NodeData>());
+      }
+      return result;
+    };
+
+    auto get_output_node_data = [this](const hlir::framework::Node& node) -> std::vector<NodeData*> {
+      auto edges = node.outlinks_in_order();
+      std::vector<NodeData*> result;
+      result.reserve(edges.size());
+      for(auto edge: edges) {
+        result.push_back(edge->sink()->safe_as<NodeData>());
+      }
+      return result;
+    };
+
+    for (auto& group : fusion_groups_) {
+      op_groups_[group.get()] = std::make_shared<api::OpGroup>(group);
+      for (const Node* node : group->CollectNodes()) {
+        if (op_node_map_.find(node) == op_node_map_.end()) {
+          // Create OpNode by Node*
+          op_node_map_[node] = create_op_node(*node);
+
+          // Create TensorNode by NodeData* for inputs of node
+          for(auto& node_data: get_input_node_data(*node)) {
+            if (tensor_node_map_.find(node_data) == tensor_node_map_.end()) {
+              tensor_node_map_[node_data] = create_tensor_node(*node_data);
+            }
+          }
+
+          // Create TensorNode by NodeData* for outputs of node
+          for(auto& node_data: get_output_node_data(*node)) {
+            if (tensor_node_map_.find(node_data) == tensor_node_map_.end()) {
+              tensor_node_map_[node_data] = create_tensor_node(*node_data);
+            }
+          }
+        }
+      }
+    }
+
+    // 2. Link nodes
+    // 2.1 link: op_node <-> tensor_node
+    for(const auto& kv : op_node_map_) {
+      // set input tensors for op_node
+      TensorInterfaceList inputs;
+      auto edges = kv.first->inlinks_in_order();
+      for(auto edge: edges) {
+        inputs.push_back(tensor_node_map_[edge->source()->safe_as<NodeData>()]);
+      }
+      kv.second->set_inputs(inputs);
+
+      // set output tensors for op_node
+      TensorInterfaceList outputs;
+      auto edges = kv.first->outlinks_in_order();
+      for(auto edge: edges) {
+        auto out = tensor_node_map_[edge->sink()->safe_as<NodeData>()];
+        outputs.push_back(out);
+        out->set_procuder(kv.second);
+      }
+      kv.second->set_outputs(outputs);
+    }
+    // for(const auto& kv : tensor_node_map_) {
+    //   std::shared_ptr<api::OpInterface> producer = op_node_map_[kv.first->inlinks().begin()->source()->safe_as<Node>()];
+    //   kv.second->set_procuder(producer); d
+    //   std::consumer
+    // }
+
+    // 2.2 link: op_group <-> op_group
+    for(auto& group : fusion_groups_) {
+      auto& op_group = op_groups_[group.get()];
+      // link to producer
+      std::unordered_set<std::shared_ptr<OpGroupInterface>> producers;
+      for(const auto& producer : group->producer_groups()) {
+        producers.insert(op_groups_[producer.get()]);
+      }
+      op_group->set_producers(producers);
+
+      // link to consumer
+      std::unordered_set<std::shared_ptr<OpGroupInterface>> consumers;
+      for(const auto& consumer : group->consumer_groups()) {
+        consumers.insert(op_groups_[consumer.get()]);
+      }
+      op_group->set_consumers(consumers);
+    }
+
+    // 2.3 link: op_group <-> op_node
+    for(auto& group : fusion_groups_) {
+      auto& op_group = op_groups_[group.get()];
+      api::OpInterfaceList all_ops;
+      api::OpInterfaceList input_ops;
+      api::OpInterfaceList output_ops;
+      for(const auto* node : group->CollectNodes()) {
+        all_ops.push_back(op_node_map_[node]);
+      }
+      for(const auto& node : group->input_nodes) {
+        input_ops.push_back(op_node_map_[node]);
+      }
+
+    }
+
+  }
+
   GroupList fusion_groups_;
   std::unordered_map<GroupPtr, int> fusion_groups_index_;
   std::unordered_map<NodeData*, std::unordered_set<GroupPtr>> input_to_consumers_;
+
+  std::unordered_map<const Graph::Group*, std::shared_ptr<api::OpGroup>> op_groups_;
+  std::unordered_map<const Node*, std::shared_ptr<api::OpNode>> op_node_map_;
+  std::unordered_map<const NodeData*, std::shared_ptr<api::TensorNode>> tensor_node_map_;
 
   struct Relation {
     std::unordered_map<framework::OpPatternKind, ConditionFunction> vertical_relation;

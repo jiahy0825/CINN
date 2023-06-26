@@ -25,6 +25,7 @@
 #include "cinn/common/shared.h"
 #include "cinn/hlir/framework/op.h"
 #include "cinn/utils/type_defs.h"
+#include "cinn/api/op_interface.h"
 
 namespace cinn {
 namespace hlir {

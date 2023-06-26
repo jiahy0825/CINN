@@ -15,28 +15,28 @@
 #pragma once
 
 #include <memory>
-#include <unordered_map>
 #include <unordered_set>
 
-#include "cinn/api/op_interface_list.h"
+#include "cinn/api/op_interface.h"
+#include "cinn/utils/small_vector.h"
 
 namespace cinn {
 namespace api {
 
-class OpGroupInterface {
+class OpInterfaceList : public cinn::utils::SmallVector<std::shared_ptr<OpInterface>, 16> {
  public:
-  virtual const OpInterfaceList& input_ops() const = 0;
+  using cinn::utils::SmallVector<std::shared_ptr<OpInterface>, 16>::SmallVector;
 
-  virtual const OpInterfaceList& output_ops() const = 0;
-
-  virtual const OpInterfaceList& all_ops() const = 0;
-
-  virtual const std::unordered_set<std::shared_ptr<OpGroupInterface>>& producers() const = 0;
-
-  virtual const std::unordered_set<std::shared_ptr<OpGroupInterface>>& consumers() const = 0;
-
- protected:
-  OpGroupInterface() = default;
+  OpInterfaceList& operator+=(const OpInterfaceList& other) {
+    std::unordered_set<std::shared_ptr<OpInterface>> op_set(this->begin(), this->end());
+    for (const auto& op : other) {
+      if (op_set.find(op) == op_set.end()) {
+        this->push_back(op);
+        op_set.insert(op);
+      }
+    }
+    return *this;
+  }
 };
 
 }  // namespace api

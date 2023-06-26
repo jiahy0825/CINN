@@ -19,20 +19,43 @@
 namespace cinn {
 namespace api {
 
-class ShapeInterface;
+class OpInterface;
+
+class ShapeInterface {
+ public:
+  virtual bool operator == (const ShapeInterface& other) const = 0;
+
+  virtual size_t& operator[] (size_t index) = 0;
+
+  virtual size_t at(size_t index) const = 0;
+
+  virtual size_t size() const = 0;
+
+  // numel is the number of elements in the shape.
+  // for example: shape is [2, 3, 4], numel in shape is 2 * 3 * 4 = 24.
+  virtual size_t numel() const = 0;
+
+ protected:
+  ShapeInterface() = default;
+  ShapeInterface(const ShapeInterface& other) = delete;
+  ShapeInterface(ShapeInterface&& other) = delete;
+  virtual ~ShapeInterface() = default;
+}
 
 class TensorInterface {
  public:
   // Get the shape of tensor.
   virtual const ShapeInterface& shape() const = 0;
 
+  virtual const std::weak_ptr<OpInterface>& producer() const = 0;
+
+  virtual const std::vector<std::weak_ptr<OpInterface>>& consumers() const = 0;
+
  protected:
   TensorInterface()                       = default;
   TensorInterface(const TensorInterface&) = delete;
   TensorInterface(TensorInterface&&)      = delete;
 };
-
-using TensorInterfacePtr = std::shared_ptr<TensorInterface>;
 
 }  // namespace api
 }  // namespace cinn

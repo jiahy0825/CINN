@@ -14,22 +14,24 @@
 
 #pragma once
 
+#include <absl/types/any.h>
 #include "cinn/api/op_group_interface.h"
 
 namespace cinn {
 namespace api {
 
+using any = absl::any;
+
 class FusePassContext {
  public:
+  virtual void EnableFuse(const OpGroupInterface& first_op_group, const OpGroupInterface& second_op_group) = 0;
+
+  // User can cache some group info in context by using this function.
+  // The group info can be any data and need to create by create_fn.
+  virtual any* FindOrCreateCachedGroupInfo(const OpGroupInterface& op_group, const std::function<any(const OpGroupInterface& op_group)>& create_fn) = 0;
+
+ protected:
   FusePassContext() = default;
-
-  std::shared_ptr<OpGroupInterface> PickGroup();
-
-  void EnableRecompute(const OpGroupInterface& op_group);
-
-  void EnableVerticalFuse(const OpGroupInterface& first_op_group, const OpGroupInterface& second_op_group);
-
-  void EnableHorizontalFuse(const OpGroupInterface& first_op_group, const OpGroupInterface& second_op_group);
 };
 
 }  // namespace api
