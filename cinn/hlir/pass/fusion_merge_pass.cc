@@ -76,10 +76,10 @@ class FusionMergePassHelper : public FusionHelperBase {
  private:
   void DoFusionMerge() {
     VLOG(3) << "DoFusionMerge...!";
-    while (DoHorizontalFusion()) {
-    }
-    while (DoVerticalFusion(/* recompute=*/false)) {
-    }
+    // while (DoHorizontalFusion()) {
+    // }
+    // while (DoVerticalFusion(/* recompute=*/false)) {
+    // }
     while (DoVerticalFusion(/* recompute=*/true)) {
     }
   }

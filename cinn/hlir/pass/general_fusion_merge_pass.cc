@@ -69,6 +69,8 @@ class FuseHelper {
 
   virtual bool DetectCycleIfFuse(const OpGroupPtr& src, const OpGroupPtr& dst) const = 0;
 
+  virtual bool IsReachable(const OpGroupPtr& lhs, const OpGroupPtr& rhs) const = 0;
+
  protected:
   FuseHelper() = default;
 };
@@ -98,11 +100,31 @@ class GraphGroupFuseHelper final : public FuseHelper {
 
   bool ReduceFuseReduce(const OpGroupPtr& src, const OpGroupPtr& dst) const override;
 
+  bool IsReachable(const OpGroupPtr& lhs, const OpGroupPtr& rhs) const override {
+    return IsReachableInDag(lhs, rhs) || IsReachableInDag(rhs, lhs);
+  }
+
   bool DetectCycleIfFuse(const OpGroupPtr& lhs, const OpGroupPtr& rhs) const override {
     return ReachableIfDirectEdgeIgnored(lhs, rhs) || ReachableIfDirectEdgeIgnored(rhs, lhs);
   }
 
  private:
+  bool IsReachableInDag(const OpGroupPtr& producer, const OpGroupPtr& consumer) const {
+    const auto& MinDepth4Node = [&](OpGroupPtr node) {
+      return std::dynamic_pointer_cast<Graph::Group>(node)->min_depth;
+    };
+    const auto& MaxDepth4Node = [&](OpGroupPtr node) {
+      return std::dynamic_pointer_cast<Graph::Group>(node)->max_depth;
+    };
+    const auto& VisitNextNodes = [&](OpGroupPtr node, const std::function<void(OpGroupPtr)>& Visit) {
+      for (const auto& pair : node->producer2inputs()) {
+        Visit(pair.first);
+      }
+    };
+    common::IsReachablePredicator<OpGroupPtr> is_reachable(MinDepth4Node, MaxDepth4Node, VisitNextNodes);
+    return is_reachable(consumer, producer, [](OpGroupPtr) {});
+  }
+
   bool ReachableIfDirectEdgeIgnored(const OpGroupPtr& producer, const OpGroupPtr& consumer) const {
     const auto& MinDepth4Node = [&](OpGroupPtr node) {
       return std::dynamic_pointer_cast<Graph::Group>(node)->min_depth;
@@ -395,7 +417,7 @@ class DefaultInputFusePass final : public InputFusePass {
       const auto& src = consumers.at(i);
       for (int j = i + 1; j < consumers.size(); ++j) {
         const auto& dst = consumers.at(j);
-        if (ctx->fuse_helper().DetectCycleIfFuse(src, dst)) {
+        if (ctx->fuse_helper().IsReachable(src, dst)) {
           continue;
         }
         if (!HorizontalFuseUtil<InputFusePassCtx>::DetectFusabilityByKind(ctx, src, dst)) {
@@ -459,7 +481,7 @@ class DefaultHorizontalFusePass final : public HorizontalFusePass {
       const auto& src = consumers.at(i);
       for (int j = i + 1; j < consumers.size(); ++j) {
         const auto& dst = consumers.at(j);
-        if (ctx->fuse_helper().DetectCycleIfFuse(src, dst)) {
+        if (ctx->fuse_helper().IsReachable(src, dst)) {
           continue;
         }
         if (!HorizontalFuseUtil<LightwareFusePassCtx>::DetectFusabilityByKind(ctx, src, dst)) {
@@ -511,7 +533,14 @@ class DefaultVerticalFusePass final : public VerticalFusePass {
       if (!DetectFusabilityByKind(ctx, producer, consumer)) {
         continue;
       }
-      if (ctx->fuse_helper().DetectCycleIfFuse(producer, consumer)) {
+      // [1]
+      /* if all consumers \in GetConditionMap and match , return directly */
+      // idx++;
+      /* 
+      if (fuse_consumers_unsafe.size() == producer->consumer_groups().size() &&
+        producer->op_pattern_kind == framework::kElementWise)
+      */
+      if (ctx->fuse_helper().DetectCycleIfFuse(producer, consumer)) { // [2]Check again
         VLOG(4) << "Can't fuse because detect cycle";
         continue;
       }
@@ -628,6 +657,7 @@ class DefaultRecomputeFusePass final : public RecomputeFusePass {
       }
       return consumers;
     }();
+    // [3] Delete here
     if (consumers.size() <= 1) {
       return;
     }
@@ -781,10 +811,10 @@ class GeneralFusionMergePassHelper : public FusionHelperBase {
  private:
   void DoFusionMerge() {
     VLOG(3) << "DoFusionMerge...!";
-    while (DoGeneralHorizontalFusion()) {
-    }
-    while (DoGeneralVerticalFusion()) {
-    }
+    // while (DoGeneralHorizontalFusion()) {
+    // }
+    // while (DoGeneralVerticalFusion()) {
+    // }
     while (DoGeneralRecomputeAndVerticalFusion()) {
     }
   }
@@ -1191,9 +1221,7 @@ class GeneralFusionMergePassHelper : public FusionHelperBase {
         gconsumer->mut_producer_groups()->erase(consumer);
         // TODO: Do not add any TensorInterface into any TensorInterfaceList in this file which will be deprecated.
         (*gconsumer->mut_producer_groups())[fused_group] += {};
-      }
-      fused_group->mut_consumer_groups()->erase(fused_group);
-      fused_group->mut_producer_groups()->erase(fused_group);
+      }    
       // belongs group
       consumer->belong_groups.insert(fused_group);
 
