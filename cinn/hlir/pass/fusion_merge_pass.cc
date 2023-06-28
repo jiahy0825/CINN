@@ -455,15 +455,15 @@ class FusionMergePassHelper : public FusionHelperBase {
       }
     }
 
-    // if (fuse_consumers.size()) {
-    //   SelectConsumerToFuse(producer, fuse_consumers);
-    // }
+    if (fuse_consumers.size()) {
+      SelectConsumerToFuse(producer, fuse_consumers);
+    }
 
-    // // if fusionable consumers exist
-    // if (fuse_consumers.size()) {
-    //   VerticalFuse(producer, fuse_consumers);
-    //   return true;
-    // }
+    // if fusionable consumers exist
+    if (fuse_consumers.size()) {
+      VerticalFuse(producer, fuse_consumers);
+      return true;
+    }
 
     return false;
   }
