@@ -528,20 +528,25 @@ class DefaultVerticalFusePass final : public VerticalFusePass {
       return;
     }
 
+    std::vector<OpGroupPtr> candidates;
+    for (int i = 0; i < consumers.size(); ++i) {
+      const auto& consumer = consumers.at(i);
+      if (!DetectFusabilityByKind(ctx, producer, consumer)) {
+        break;
+      }
+      candidates.push_back(consumer);
+    }
+    if (candidates.size() == consumers.size() && producer->kind() == framework::kElementWise) {
+      return;
+    }
+
     for (int i = 0; i < consumers.size(); ++i) {
       const auto& consumer = consumers.at(i);
       if (!DetectFusabilityByKind(ctx, producer, consumer)) {
         continue;
       }
-      // [1]
-      /* if all consumers \in GetConditionMap and match , return directly */
-      // idx++;
-      /* 
-      if (fuse_consumers_unsafe.size() == producer->consumer_groups().size() &&
-        producer->op_pattern_kind == framework::kElementWise)
-      */
       if (ctx->fuse_helper().DetectCycleIfFuse(producer, consumer)) { // [2]Check again
-        VLOG(4) << "Can't fuse because detect cycle";
+        VLOG(1) << "DEBUG Vertical Can't fuse because detect cycle";
         continue;
       }
       ctx->EnableFuse(producer, consumer);
@@ -648,8 +653,8 @@ class DefaultRecomputeFusePass final : public RecomputeFusePass {
   int Benefit() const override { return 100; }
 
   void operator()(LightwareFusePassCtx* ctx) const override {
-    VLOG(1) << "DefaultRecomputeFusePass";
     const auto& producer        = ctx->PickOpGroup();
+    VLOG(1) << "DefaultRecomputeFusePass check " << std::dynamic_pointer_cast<Graph::Group>(producer)->group_id;
     const OpGroupList consumers = [&]() {
       OpGroupList consumers;
       for (const auto& pair : producer->consumer2outputs()) {
@@ -658,18 +663,31 @@ class DefaultRecomputeFusePass final : public RecomputeFusePass {
       return consumers;
     }();
     // [3] Delete here
-    if (consumers.size() <= 1) {
-      return;
-    }
+    // if (consumers.size() <= 1) {
+    //   return;
+    // }
     std::vector<OpGroupPtr> candidates;
+    std::vector<OpGroupPtr> safe_candidates;
     for (int i = 0; i < consumers.size(); ++i) {
       const auto& consumer = consumers.at(i);
       if (!DetectFusabilityByKind(ctx, producer, consumer)) {
         continue;
       }
       candidates.push_back(consumer);
+      if (ctx->fuse_helper().DetectCycleIfFuse(producer, consumer)) { // [2]Check again
+        VLOG(1) << "DEBUG Recompute Can't fuse because detect cycle " << std::dynamic_pointer_cast<Graph::Group>(producer)->group_id;
+        continue;
+      }
+      safe_candidates.push_back(consumer);
     }
-    if (candidates.size() == consumers.size() && producer->kind() == framework::kElementWise) {
+
+    if (safe_candidates.size() == 0) {
+      VLOG(1) << "DEBUG safe_candidates.empty(), exit fuse group " << std::dynamic_pointer_cast<Graph::Group>(producer)->group_id;
+      return;
+    }
+    VLOG(1) << "DEBUG fuse_consumers_unsafe.size() = " << candidates.size();
+
+    if (!safe_candidates.empty() && candidates.size() == consumers.size() && producer->kind() == framework::kElementWise) {
       for (const auto& consumer : consumers) {
         ctx->EnableFuse(producer, consumer);
       }
@@ -816,6 +834,7 @@ class GeneralFusionMergePassHelper : public FusionHelperBase {
     // while (DoGeneralVerticalFusion()) {
     // }
     while (DoGeneralRecomputeAndVerticalFusion()) {
+      VLOG(1) << "DEBUG Do new Recompute";
     }
   }
 
@@ -893,20 +912,21 @@ class GeneralFusionMergePassHelper : public FusionHelperBase {
     bool updated = false;
     for (int idx = 0; idx < fusion_groups_.size(); ++idx) {
       auto producer = fusion_groups_[idx];
-      VLOG(3) << "Fusion Producer Group -> " << producer->group_id;
+      VLOG(1) << "Fusion Producer idx " << idx << " Group -> " << producer->group_id;
       // if producer is sub group.
       if (producer->belong_groups.size()) {
         continue;
       }
       // do horizontal fusion.
+      // [4] Here also mismatch
       updated |= GeneralRecomputeFuse(producer);
-      if (!updated) {
-        updated |= GeneralVerticalFuse(producer);
-      }
+      // if (!updated) {
+      //   updated |= GeneralVerticalFuse(producer);
+      // }
     }
 
     // fuse input consumers
-    updated |= GeneralInputFuse();
+    // updated |= GeneralInputFuse();
 
     if (updated) {
       UpdateFusionGroup();
@@ -1460,7 +1480,7 @@ class GeneralFusionMergePassHelper : public FusionHelperBase {
       }
 
       // delete consumer group in producer
-      producer->mut_consumer_groups()->erase(consumer);
+      // producer->mut_consumer_groups()->erase(consumer);
 
       // sub groups
       if (producer->fused_sub_groups.size()) {
@@ -1608,9 +1628,9 @@ class GeneralFusionMergePassHelper : public FusionHelperBase {
 
   void TagRecomputeGroups(LightwareFusePassCtx* ctx) const {
     const auto& producer = ctx->PickOpGroup();
-    if (producer->consumer2outputs().size() <= 1) {
-      return;
-    }
+    // if (producer->consumer2outputs().size() <= 1) {
+    //   return;
+    // }
     const auto& fuse_passes = GetRecomputeFusePasses();
     for (const auto& fuse_pass : fuse_passes) {
       (*fuse_pass)(ctx);
@@ -1645,6 +1665,8 @@ class GeneralFusionMergePassHelper : public FusionHelperBase {
     bool update          = false;
     auto consumer_groups = GetFusableConsumerGroupSet();
     if (consumer_groups.size() > 0) {
+      CHECK(consumer_groups.size() == producer->mut_consumer_groups()->size()) << "Recompute requires fuse all consumers!";
+      VLOG(1) << "DEBUG begin recompute fuse group " << producer->group_id;
       RecomputeFuse(producer, consumer_groups);
       update = true;
     }
