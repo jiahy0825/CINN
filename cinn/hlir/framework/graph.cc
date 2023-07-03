@@ -17,11 +17,23 @@
 #include <atomic>
 #include <sstream>
 
+#include "cinn/api/op_group_interface.h"
 #include "cinn/hlir/framework/visualize_helper.h"
 #include "cinn/runtime/flags.h"
 #include "cinn/utils/string.h"
 
 DECLARE_string(cinn_fusion_groups_graphviz_dir);
+
+namespace cinn {
+namespace api {
+
+bool OpGroupCmp::operator()(const std::shared_ptr<OpGroupInterface>& lhs,
+                            const std::shared_ptr<OpGroupInterface>& rhs) const {
+  return lhs->groupId() < rhs->groupId();
+}
+
+}  // namespace api
+}  // namespace cinn
 
 namespace cinn {
 namespace hlir {

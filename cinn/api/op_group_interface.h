@@ -14,8 +14,8 @@
 
 #pragma once
 
+#include <map>
 #include <memory>
-#include <unordered_map>
 #include <unordered_set>
 
 #include "cinn/api/tensor_interface.h"
@@ -25,9 +25,17 @@
 namespace cinn {
 namespace api {
 
+class OpGroupInterface;
+
+struct OpGroupCmp {
+  bool operator()(const std::shared_ptr<OpGroupInterface>& lhs, const std::shared_ptr<OpGroupInterface>& rhs) const;
+};
+
 class OpGroupInterface {
  public:
   virtual hlir::framework::OpPatternKind kind() const = 0;
+
+  virtual std::string groupId() const = 0;
 
   //  virtual const TensorInterfaceList& input_tensors() const = 0;
 
@@ -37,15 +45,17 @@ class OpGroupInterface {
 
   //  virtual const std::unordered_set<std::shared_ptr<OpGroupInterface>> consumers() const = 0;
 
-  virtual const std::unordered_map<std::shared_ptr<OpGroupInterface>, TensorInterfaceList>& producer_groups() const = 0;
+  virtual const std::map<std::shared_ptr<OpGroupInterface>, TensorInterfaceList, OpGroupCmp>& producer_groups()
+      const = 0;
 
-  virtual const std::unordered_map<std::shared_ptr<OpGroupInterface>, TensorInterfaceList>& consumer_groups() const = 0;
+  virtual const std::map<std::shared_ptr<OpGroupInterface>, TensorInterfaceList, OpGroupCmp>& consumer_groups()
+      const = 0;
 
-  const std::unordered_map<std::shared_ptr<OpGroupInterface>, TensorInterfaceList>& producer2inputs() const {
+  const std::map<std::shared_ptr<OpGroupInterface>, TensorInterfaceList, OpGroupCmp>& producer2inputs() const {
     return producer_groups();
   }
 
-  const std::unordered_map<std::shared_ptr<OpGroupInterface>, TensorInterfaceList>& consumer2outputs() const {
+  const std::map<std::shared_ptr<OpGroupInterface>, TensorInterfaceList, OpGroupCmp>& consumer2outputs() const {
     return consumer_groups();
   }
 

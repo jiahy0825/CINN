@@ -17,6 +17,7 @@
 #include <absl/types/any.h>
 
 #include <atomic>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -33,6 +34,7 @@ namespace framework {
 
 using OpGroupInterface    = cinn::api::OpGroupInterface;
 using TensorInterfaceList = cinn::api::TensorInterfaceList;
+using OpGroupMap          = std::map<std::shared_ptr<OpGroupInterface>, TensorInterfaceList, cinn::api::OpGroupCmp>;
 
 /**
  * \brief Symbolic computation graph.
@@ -127,29 +129,23 @@ class Graph : public cinn::common::Graph {
     std::string GetFuncName() { return "fn_" + group_id + unique_id; }
 
    public:
-    const std::unordered_map<std::shared_ptr<OpGroupInterface>, TensorInterfaceList>& producer_groups() const override {
-      return producer_groups_;
-    }
+    const OpGroupMap& producer_groups() const override { return producer_groups_; }
 
-    const std::unordered_map<std::shared_ptr<OpGroupInterface>, TensorInterfaceList>& consumer_groups() const override {
-      return consumer_groups_;
-    }
+    const OpGroupMap& consumer_groups() const override { return consumer_groups_; }
 
-    std::unordered_map<std::shared_ptr<OpGroupInterface>, TensorInterfaceList>* mut_producer_groups() {
-      return &producer_groups_;
-    }
+    OpGroupMap* mut_producer_groups() { return &producer_groups_; }
 
-    std::unordered_map<std::shared_ptr<OpGroupInterface>, TensorInterfaceList>* mut_consumer_groups() {
-      return &consumer_groups_;
-    }
+    OpGroupMap* mut_consumer_groups() { return &consumer_groups_; }
 
     hlir::framework::OpPatternKind kind() const override { return op_pattern_kind; }
 
+    std::string groupId() const override { return group_id; };
+
    private:
     // input groups
-    std::unordered_map<std::shared_ptr<OpGroupInterface>, TensorInterfaceList> producer_groups_;
+    OpGroupMap producer_groups_;
     // output grous
-    std::unordered_map<std::shared_ptr<OpGroupInterface>, TensorInterfaceList> consumer_groups_;
+    OpGroupMap consumer_groups_;
   };
   std::vector<std::shared_ptr<Group>> fusion_groups;
 
