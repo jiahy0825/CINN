@@ -12,20 +12,32 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "cinn/api/tensor_node.h"
+#pragma once
 
-#include "cinn/api/op_node.h"
+#include <memory>
+#include <unordered_set>
+
+#include "cinn/api/tensor_interface.h"
+#include "cinn/utils/small_vector.h"
 
 namespace cinn {
 namespace api {
 
-OpNode TensorNode::producer() const {
-  return OpNode(node_data_->source_node.get(), graph_);
-}
+class TensorInterfaceList : public cinn::utils::SmallVector<TensorInterfacePtr, 16> {
+ public:
+  using cinn::utils::SmallVector<TensorInterfacePtr, 16>::SmallVector;
 
-OpNode TensorNode::ConsumerOpListView::Iterator::operator * () const{
-  return OpNode((*iter_)->sink()->safe_as<hlir::framework::Node>(), graph_);
-}
+  TensorInterfaceList& operator+=(const TensorInterfaceList& other) {
+    std::unordered_set<TensorInterfacePtr> tensor_set(this->begin(), this->end());
+    for (const auto& tensor_if : other) {
+      if (tensor_set.find(tensor_if) == tensor_set.end()) {
+        this->push_back(tensor_if);
+        tensor_set.insert(tensor_if);
+      }
+    }
+    return *this;
+  }
+};
 
 }  // namespace api
 }  // namespace cinn
