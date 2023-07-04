@@ -62,6 +62,9 @@ class Graph : public cinn::common::Graph {
   absl::flat_hash_map<std::string, std::shared_ptr<absl::any>> attrs;
 
   std::vector<std::vector<Node*>> groups;
+
+  struct GroupCmp;
+
   struct Group final : public OpGroupInterface {
     // distance to last group.
     int depth{0};
@@ -95,13 +98,7 @@ class Graph : public cinn::common::Graph {
     std::vector<std::string> input_names;
     std::vector<std::string> output_names;
 
-    std::unordered_set<std::shared_ptr<Group>> CollectConsumerGroups() {
-      std::unordered_set<std::shared_ptr<Group>> groups;
-      for (const auto& consumer_and_list : consumer_groups_) {
-        groups.insert(std::dynamic_pointer_cast<Graph::Group>(consumer_and_list.first));
-      }
-      return groups;
-    }
+    std::set<std::shared_ptr<Group>, GroupCmp> CollectConsumerGroups();
 
     std::vector<Node*> CollectNodes() {
       if (fused_sub_groups.size()) {
@@ -147,6 +144,13 @@ class Graph : public cinn::common::Graph {
     // output grous
     OpGroupMap consumer_groups_;
   };
+
+  struct GroupCmp {
+    bool operator()(const std::shared_ptr<Group>& lhs, const std::shared_ptr<Group>& rhs) const {
+      return lhs->group_id < rhs->group_id;
+    }
+  };
+
   std::vector<std::shared_ptr<Group>> fusion_groups;
 
   void RegisterNode(size_t key, Node* node) { this->common::Graph::RegisterNode(key, node->as<common::GraphNode>()); }

@@ -42,6 +42,14 @@ namespace framework {
 using DTypeDict = absl::flat_hash_map<std::string, common::Type>;
 using ShapeDict = absl::flat_hash_map<std::string, shape_t>;
 
+std::set<std::shared_ptr<Graph::Group>, Graph::GroupCmp> Graph::Group::CollectConsumerGroups() {
+  std::set<std::shared_ptr<Graph::Group>, Graph::GroupCmp> groups;
+  for (const auto& consumer_and_list : consumer_groups_) {
+    groups.insert(std::dynamic_pointer_cast<Graph::Group>(consumer_and_list.first));
+  }
+  return groups;
+}
+
 void Graph::Initialize(const frontend::Program& prog,
                        const std::unordered_set<std::string>& fetch_var_ids,
                        const Target& target) {
