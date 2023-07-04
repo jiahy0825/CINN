@@ -100,9 +100,10 @@ class Graph : public cinn::common::Graph {
         return std::hash<uint64_t>()(reinterpret_cast<uint64_t>(group.get()));
       }
     };
+
     struct SharedGroupComparator {
       bool operator()(const std::shared_ptr<Group>& first, const std::shared_ptr<Group>& second) const noexcept {
-        return first.get() == second.get();
+        return first->group_id < second->group_id;
       }
     };
 
@@ -146,31 +147,21 @@ class Graph : public cinn::common::Graph {
     std::string GetFuncName() { return "fn_" + group_id + unique_id; }
 
    public:
-    const std::unordered_set<std::shared_ptr<Group>, SharedGroupHasher, SharedGroupComparator>& producer_groups()
-        const {
-      return producer_groups_;
-    }
+    const std::set<std::shared_ptr<Group>, SharedGroupComparator>& producer_groups() const { return producer_groups_; }
 
-    const std::unordered_set<std::shared_ptr<Group>, SharedGroupHasher, SharedGroupComparator>& consumer_groups()
-        const {
-      return consumer_groups_;
-    }
+    const std::set<std::shared_ptr<Group>, SharedGroupComparator>& consumer_groups() const { return consumer_groups_; }
 
-    std::unordered_set<std::shared_ptr<Group>, SharedGroupHasher, SharedGroupComparator>* mut_producer_groups() {
-      return &producer_groups_;
-    }
+    std::set<std::shared_ptr<Group>, SharedGroupComparator>* mut_producer_groups() { return &producer_groups_; }
 
-    std::unordered_set<std::shared_ptr<Group>, SharedGroupHasher, SharedGroupComparator>* mut_consumer_groups() {
-      return &consumer_groups_;
-    }
+    std::set<std::shared_ptr<Group>, SharedGroupComparator>* mut_consumer_groups() { return &consumer_groups_; }
 
     hlir::framework::OpPatternKind kind() const { return op_pattern_kind; }
 
    private:
     // input groups
-    std::unordered_set<std::shared_ptr<Group>, SharedGroupHasher, SharedGroupComparator> producer_groups_;
+    std::set<std::shared_ptr<Group>, SharedGroupComparator> producer_groups_;
     // output grous
-    std::unordered_set<std::shared_ptr<Group>, SharedGroupHasher, SharedGroupComparator> consumer_groups_;
+    std::set<std::shared_ptr<Group>, SharedGroupComparator> consumer_groups_;
   };
   std::vector<std::shared_ptr<Group>> fusion_groups;
 

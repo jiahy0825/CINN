@@ -24,7 +24,6 @@ namespace cinn {
 namespace api {
 
 using Comparator = hlir::framework::Graph::Group::SharedGroupComparator;
-using Hasher     = hlir::framework::Graph::Group::SharedGroupHasher;
 
 class OpGroup {
  public:
@@ -34,8 +33,7 @@ class OpGroup {
 
   class OpGroupListIterator {
    public:
-    OpGroupListIterator(
-        std::unordered_set<std::shared_ptr<hlir::framework::Graph::Group>, Hasher, Comparator>::const_iterator it)
+    OpGroupListIterator(std::set<std::shared_ptr<hlir::framework::Graph::Group>, Comparator>::const_iterator it)
         : iter_(it) {}
 
     OpGroupListIterator& operator++() {
@@ -56,7 +54,7 @@ class OpGroup {
     OpGroup operator*() const { return OpGroup(*iter_); }
 
    private:
-    std::unordered_set<std::shared_ptr<hlir::framework::Graph::Group>, Hasher, Comparator>::const_iterator iter_;
+    std::set<std::shared_ptr<hlir::framework::Graph::Group>, Comparator>::const_iterator iter_;
   };
 
   class ProducerOpGroupListView {

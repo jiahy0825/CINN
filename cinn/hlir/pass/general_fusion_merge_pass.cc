@@ -35,14 +35,19 @@ using framework::shape_t;
 using common::GraphEdge;
 using common::GraphNode;
 
-using GroupPtr  = std::shared_ptr<Graph::Group>;
-using GroupList = std::vector<GroupPtr>;
-
 using Comparator = Graph::Group::SharedGroupComparator;
 using Hasher     = Graph::Group::SharedGroupHasher;
 
+using GroupPtr  = std::shared_ptr<Graph::Group>;
+using GroupList = std::vector<GroupPtr>;
+using GroupSet  = std::set<GroupPtr, Comparator>;
+
 using OpGroupPtr  = api::OpGroup;
 using OpGroupList = std::vector<OpGroupPtr>;
+struct OpGroupCmp {
+  bool operator()(const OpGroupPtr& lhs, const OpGroupPtr& rhs) const { return lhs.group_id() < rhs.group_id(); }
+};
+using OpGroupSet = std::set<OpGroupPtr, OpGroupCmp>;
 
 using ConditionFunction = std::function<bool(const FusionHelperBase*, const GroupPtr&, const GroupPtr&)>;
 
@@ -74,8 +79,7 @@ class FuseHelper {
 
   virtual bool DetectCycleIfFuse(const OpGroupPtr& src, const OpGroupPtr& dst) const = 0;
 
-  virtual bool IsConsumerSetsReachable(const OpGroupPtr& group,
-                                       const std::unordered_set<OpGroupPtr>& consumers) const = 0;
+  virtual bool IsConsumerSetsReachable(const OpGroupPtr& group, const OpGroupSet& consumers) const = 0;
 
  protected:
   FuseHelper() = default;
@@ -114,8 +118,7 @@ class GraphGroupFuseHelper final : public FuseHelper {
     return ReachableIfDirectEdgeIgnored(lhs, rhs) || ReachableIfDirectEdgeIgnored(rhs, lhs);
   }
 
-  bool IsConsumerSetsReachable(const OpGroupPtr& group,
-                               const std::unordered_set<OpGroupPtr>& consumers) const override {
+  bool IsConsumerSetsReachable(const OpGroupPtr& group, const OpGroupSet& consumers) const override {
     for (const auto& consumer : consumers) {
       if (group == consumer) {
         continue;
@@ -448,8 +451,8 @@ class DefaultInputFusePass final : public InputFusePass {
   void operator()(InputFusePassCtx* ctx) const override {
     const auto& consumer_set = ctx->PickConsumersWithSameInputs();
 
-    const std::unordered_set<OpGroupPtr> consumer_candidates = [&]() -> std::unordered_set<OpGroupPtr> {
-      std::unordered_set<OpGroupPtr> consumers;
+    const OpGroupSet consumer_candidates = [&]() -> OpGroupSet {
+      OpGroupSet consumers;
       for (const auto& consumer : consumer_set) {
         if (consumer.kind() == framework::kElementWise || consumer.kind() == framework::kBroadcast ||
             consumer.kind() == framework::kInjective || consumer.kind() == framework::kReduction) {
@@ -533,9 +536,9 @@ class DefaultHorizontalFusePass final : public HorizontalFusePass {
   int Benefit() const override { return 100; }
 
   void operator()(LightwareFusePassCtx* ctx) const override {
-    const auto& producer                                     = ctx->PickOpGroup();
-    const std::unordered_set<OpGroupPtr> consumer_candidates = [&]() -> std::unordered_set<OpGroupPtr> {
-      std::unordered_set<OpGroupPtr> consumers;
+    const auto& producer                 = ctx->PickOpGroup();
+    const OpGroupSet consumer_candidates = [&]() -> OpGroupSet {
+      OpGroupSet consumers;
       for (const auto& consumer : producer.consumers()) {
         if (consumer.kind() == framework::kElementWise || consumer.kind() == framework::kBroadcast ||
             consumer.kind() == framework::kInjective || consumer.kind() == framework::kReduction) {
@@ -577,16 +580,6 @@ class DefaultHorizontalFusePass final : public HorizontalFusePass {
 
     for (const auto& groups : fusionable_consumers) {
       if (groups.size() > 1) {
-        // Trick for BERT, maybe not required, wait for substitution from unordered_set to set
-        if (groups.size() == 2) {
-          OpGroupList fuse_group;
-          if (groups[1].group_id().substr(0, 4) == "cast" && groups[0].group_id() == "reshape_split") {
-            fuse_group.push_back(groups[1]);
-            fuse_group.push_back(groups[0]);
-            ctx->EnableFuse(fuse_group);
-            continue;
-          }
-        }
         ctx->EnableFuse(groups);
       }
     }
@@ -887,6 +880,9 @@ class GeneralFusionMergePassHelper : public FusionHelperBase {
  public:
   explicit GeneralFusionMergePassHelper(const Graph* graph) : FusionHelperBase(graph), graph_(graph) {
     fusion_groups_ = graph->fusion_groups;
+    std::sort(fusion_groups_.begin(), fusion_groups_.end(), [](const GroupPtr& first, const GroupPtr& second) {
+      return first->group_id < second->group_id;
+    });
     // init input to consumers.
     InitInputToConsumers();
     // init fusion group index.
@@ -1111,7 +1107,7 @@ class GeneralFusionMergePassHelper : public FusionHelperBase {
     }
   }
 
-  bool CallGeneralInputFusePass(const std::unordered_set<GroupPtr, Hasher, Comparator>& consumers) {
+  bool CallGeneralInputFusePass(const GroupSet& consumers) {
     VLOG(3) << "CallGeneralInputFusePass...!";
     const auto& GetFusableConsumerGroupLists = [&]() -> std::vector<OpGroupList> {
       std::vector<OpGroupList> tagged_lists;
@@ -1171,7 +1167,7 @@ class GeneralFusionMergePassHelper : public FusionHelperBase {
       if (fused_group->group_id.size()) {
         fused_group->group_id += "_" + consumer->group_id;
       } else {
-        fused_group->group_id = consumer->group_id;
+        fused_group->group_id = "fused_" + consumer->group_id;
       }
       // set op pattern kind
       fused_group->op_pattern_kind =
@@ -1326,12 +1322,12 @@ class GeneralFusionMergePassHelper : public FusionHelperBase {
       return tagged_sets;
     };
 
-    auto GetFusableConsumerGroupSet = [&]() -> std::unordered_set<GroupPtr, Hasher, Comparator> {
+    auto GetFusableConsumerGroupSet = [&]() -> GroupSet {
       const auto& group_sets = GetFusableConsumerOpGroupSets();
       if (group_sets.empty()) {
         return {};
       }
-      std::unordered_set<GroupPtr, Hasher, Comparator> ret;
+      GroupSet ret;
       for (const auto& group_pair : group_sets) {
         ret.insert(group_pair.second.GetGroup());
       }
@@ -1350,8 +1346,7 @@ class GeneralFusionMergePassHelper : public FusionHelperBase {
     return update;
   }
 
-  void VerticalFuse(const GroupPtr& producer,
-                    const std::unordered_set<GroupPtr, Hasher, Comparator>& fusionable_consumers) {
+  void VerticalFuse(const GroupPtr& producer, const GroupSet& fusionable_consumers) {
     VLOG(3) << "VerticalFuse...!";
     GroupList fused_groups;
     GroupPtr master_fuesd_group(nullptr);
@@ -1558,12 +1553,12 @@ class GeneralFusionMergePassHelper : public FusionHelperBase {
       return tagged_sets;
     };
 
-    auto GetFusableConsumerGroupSet = [&]() -> std::unordered_set<GroupPtr, Hasher, Comparator> {
+    auto GetFusableConsumerGroupSet = [&]() -> GroupSet {
       const auto& group_sets = GetFusableConsumerOpGroupSets();
       if (group_sets.empty()) {
         return {};
       }
-      std::unordered_set<GroupPtr, Hasher, Comparator> ret;
+      GroupSet ret;
       for (const auto& group_pair : group_sets) {
         ret.insert(group_pair.second.GetGroup());
       }
@@ -1581,16 +1576,14 @@ class GeneralFusionMergePassHelper : public FusionHelperBase {
     return update;
   }
 
-  void RecomputeFuse(const GroupPtr& producer,
-                     const std::unordered_set<GroupPtr, Hasher, Comparator>& fusionable_consumers) {
+  void RecomputeFuse(const GroupPtr& producer, const GroupSet& fusionable_consumers) {
     VerticalFuse(producer, fusionable_consumers);
   }
 
-  void SelectConsumerToFuse(const GroupPtr& producer,
-                            std::unordered_set<GroupPtr, Hasher, Comparator>* fusionable_consumers) {
+  void SelectConsumerToFuse(const GroupPtr& producer, GroupSet* fusionable_consumers) {
     // if is const op
     if (is_const_group(this, producer)) {
-      std::unordered_set<GroupPtr, Hasher, Comparator> candidates;
+      GroupSet candidates;
       for (auto& consumer : *fusionable_consumers) {
         // if can be output node.
         if (is_same_shape(this, producer, consumer)) {
@@ -1651,7 +1644,10 @@ class GeneralFusionMergePassHelper : public FusionHelperBase {
           candidates.push_back(consumer);
         }
       }
-      sort(candidates.begin(), candidates.end(), [](const auto& lhs, const auto& rhs) {
+      sort(candidates.begin(), candidates.end(), [](const GroupPtr& lhs, const GroupPtr& rhs) {
+        if (lhs->op_pattern_kind == rhs->op_pattern_kind) {
+          return lhs->group_id < rhs->group_id;
+        }
         return lhs->op_pattern_kind < rhs->op_pattern_kind;
       });
 
@@ -1660,10 +1656,10 @@ class GeneralFusionMergePassHelper : public FusionHelperBase {
         fusionable_consumers->insert(*candidates.begin());
       }
     } else {
-      std::vector<GroupPtr> candidates;
+      GroupSet candidates;
       for (auto& consumer : *fusionable_consumers) {
         if (consumer->op_pattern_kind == framework::kElementWise) {
-          candidates.push_back(consumer);
+          candidates.insert(consumer);
           continue;
         }
 
@@ -1672,13 +1668,13 @@ class GeneralFusionMergePassHelper : public FusionHelperBase {
 
         if (std::accumulate(shape0.begin(), shape0.end(), 1, std::multiplies<int>()) ==
             std::accumulate(shape1.begin(), shape1.end(), 1, std::multiplies<int>())) {
-          candidates.push_back(consumer);
+          candidates.insert(consumer);
         }
       }
 
       fusionable_consumers->clear();
       if (candidates.size()) {
-        fusionable_consumers->insert(candidates.front());
+        fusionable_consumers->insert(*candidates.begin());
       }
     }
   }
@@ -1765,7 +1761,7 @@ class GeneralFusionMergePassHelper : public FusionHelperBase {
   void UpdateInputToConsumers() {
     for (auto& input_consumers : input_to_consumers_) {
       auto& consumers = input_consumers.second;
-      std::unordered_set<GroupPtr, Hasher, Comparator> updated_consumers;
+      GroupSet updated_consumers;
       for (auto& consumer : consumers) {
         std::queue<GroupPtr> fused_groups;
         fused_groups.push(consumer);
@@ -1834,8 +1830,8 @@ class GeneralFusionMergePassHelper : public FusionHelperBase {
 
     // update producer and consumer.
     for (auto& group : fusion_groups_) {
-      std::unordered_set<GroupPtr, Hasher, Comparator> producers;
-      std::unordered_set<GroupPtr, Hasher, Comparator> consumers;
+      GroupSet producers;
+      GroupSet consumers;
 
       for (const auto& producer : group->producer_groups()) {
         CHECK(producer->belong_groups.size());
@@ -1856,7 +1852,7 @@ class GeneralFusionMergePassHelper : public FusionHelperBase {
   const Graph* graph_;
   GroupList fusion_groups_;
   std::unordered_map<GroupPtr, int> fusion_groups_index_;
-  std::unordered_map<NodeData*, std::unordered_set<GroupPtr, Hasher, Comparator>> input_to_consumers_;
+  std::unordered_map<NodeData*, GroupSet> input_to_consumers_;
 };
 
 void GeneralFusionMergePassInternal(Graph* graph) {
