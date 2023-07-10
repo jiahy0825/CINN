@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include <map>
+#include <string>
 #include <unordered_map>
 
 #include "cinn/api/op_group.h"
@@ -21,6 +22,7 @@
 #include "cinn/hlir/pass/general_fusion_merge_pass_utils.h"
 
 DECLARE_bool(enhance_vertical_fusion_with_recompute);
+DECLARE_string(general_fusion_merge_order_pattern);
 
 namespace cinn {
 namespace hlir {
@@ -895,7 +897,8 @@ class GeneralFusionMergePassHelper : public FusionHelperBase {
 
   GroupList operator()() {
     // run fusion merge untill no update.
-    DoFusionMerge();
+    // By default: "H*([HV]I)*([RV]I)*"
+    DoFusionMergeByRegex(FLAGS_general_fusion_merge_order_pattern);
     for (auto& group : fusion_groups_) {
       VLOG(3) << "Fusion Group -> " << group->group_id;
       for (auto& sub_group : group->fused_sub_groups) {
@@ -920,6 +923,142 @@ class GeneralFusionMergePassHelper : public FusionHelperBase {
     }
     while (DoGeneralRecomputeAndVerticalFusion()) {
     }
+  }
+
+  void DoFusionMergeByRegex(const std::string& order_pattern) {
+    VLOG(3) << "DoFusionMergeByRegex...!";
+    std::size_t pos         = 0;
+    std::size_t right_brace = 0;
+    while (pos < order_pattern.length()) {
+      VLOG(6) << "Regex parse index offset = " << pos;
+      char fuse_mode          = order_pattern[pos];
+      std::string cur_pattern = "";
+      switch (fuse_mode) {
+        case 'H':
+        case 'V':
+        case 'R':
+        case 'I':
+          cur_pattern += fuse_mode;
+          // H* or V* or R* or I*
+          if (pos + 1 < order_pattern.length() && order_pattern[pos + 1] == '*') {
+            DoWhileLoopMerge(cur_pattern);
+            pos += 2;
+          } else {  // Single H or V or R or I
+            DoInnerLoopMerge(cur_pattern);
+            pos += 1;
+          }
+          break;
+        case '(':
+          right_brace = order_pattern.find(")", pos);
+          CHECK(pos + 1 < right_brace && right_brace != order_pattern.npos)
+              << "Input nothing between () or cannot match ) from offset = " << pos << ", input order_pattern is "
+              << order_pattern;
+          cur_pattern = order_pattern.substr(pos + 1, right_brace - pos - 1);
+          // match without brace. pattern = (XXX)* output = XXX
+          if (right_brace + 1 < order_pattern.length() && order_pattern[right_brace + 1] == '*') {
+            DoWhileLoopMerge(cur_pattern);
+            pos = right_brace + 2;
+          } else {  // match without brace. pattern = (XXX) output = XXX
+            DoInnerLoopMerge(cur_pattern);
+            pos = right_brace + 1;
+          }
+          break;
+        case '[':
+          right_brace = order_pattern.find("]", pos);
+          CHECK(pos + 1 < right_brace && right_brace != order_pattern.npos)
+              << "Input nothing between [] or cannot match ] from offset = " << pos << ", input order_pattern is "
+              << order_pattern;
+          cur_pattern = order_pattern.substr(pos, right_brace - pos + 1);
+          // match with brace. pattern = [XXX]* output = [XXX]
+          if (right_brace + 1 < order_pattern.length() && order_pattern[right_brace + 1] == '*') {
+            DoWhileLoopMerge(cur_pattern);
+            pos = right_brace + 2;
+          } else {  // match with brace. pattern = [XXX] output = [XXX]
+            DoInnerLoopMerge(cur_pattern);
+            pos = right_brace + 1;
+          }
+          break;
+        default:
+          LOG(FATAL) << "Parse order_pattern failed from offset = " << pos << ". Please check again!";
+      }
+    }
+  }
+
+  void DoWhileLoopMerge(const std::string& order_pattern) {
+    VLOG(3) << "DoWhileLoopMerge...!";
+    while (DoInnerLoopMerge(order_pattern)) {
+    }
+  }
+
+  // Possible inputs:
+  // 1. Single H or V or R or I
+  // 2. Composite of HVRI
+  // 3. Fuse Loop: [HV]I or [RV]I
+  // 4. More complex examples such as: [HV]I[RV]R
+  bool DoInnerLoopMerge(const std::string& order_pattern) {
+    bool updated            = false;
+    std::size_t pos         = 0;
+    std::size_t right_brace = 0;
+    while (pos < order_pattern.length()) {
+      switch (order_pattern[pos]) {
+        case 'H':
+        case 'V':
+        case 'R':
+          updated |= DoFuseLoopMerge(order_pattern.substr(pos, 1));
+          pos += 1;
+          break;
+        case 'I':
+          updated |= GeneralInputFuse();
+          pos += 1;
+          break;
+        case '[':
+          right_brace = order_pattern.find("]", pos);
+          updated |= DoFuseLoopMerge(order_pattern.substr(pos + 1, right_brace - pos - 1));
+          pos = right_brace + 1;
+          break;
+        default:
+          LOG(FATAL) << "Parse order_pattern " << order_pattern << " failed from offset = " << pos
+                     << ". Please check again!";
+      }
+    }
+    return updated;
+  }
+
+  // Possible inputs:
+  // 1. Single or multiple H or V or R
+  bool DoFuseLoopMerge(const std::string& order_pattern) {
+    VLOG(3) << "DoFuseLoopMerge...!";
+    bool updated = false;
+    for (int idx = 0; idx < fusion_groups_.size(); ++idx) {
+      auto producer = fusion_groups_[idx];
+      VLOG(3) << "Fusion Producer Group -> " << producer->group_id;
+      // if producer is sub group.
+      if (producer->belong_groups.size()) {
+        continue;
+      }
+      for (std::size_t pos = 0; pos < order_pattern.length(); ++pos) {
+        switch (order_pattern[pos]) {
+          case 'H':
+            // do horizontal fusion.
+            updated |= GeneralHorizontalFuse(producer);
+            break;
+          case 'V':
+            updated |= GeneralVerticalFuse(producer);
+            break;
+          case 'R':
+            updated |= GeneralRecomputeFuse(producer);
+            break;
+          default:
+            LOG(FATAL) << "Parse order_pattern " << order_pattern << " failed from offset = " << pos
+                       << ". Please check again!";
+        }
+      }
+    }
+
+    if (updated) {
+      UpdateFusionGroup();
+    }
+    return updated;
   }
 
   bool DoGeneralHorizontalFusion() {

@@ -56,6 +56,11 @@ DEFINE_bool(general_fusion_merge_pass,
             BoolFromEnv("FLAGS_general_fusion_merge_pass", true),
             "Whether to use general fusion_merge pass.");
 
+DEFINE_string(
+    general_fusion_merge_order_pattern,
+    StringFromEnv("FLAGS_general_fusion_merge_order_pattern", "H*([HV]I)*([RV]I)*"),
+    "Specify the order of fusion_mode, which contains HorizontalFuse, VerticalFuse, RecomputeFuse, InputFuse.");
+
 DEFINE_bool(cinn_use_common_subexpression_elimination,
             BoolFromEnv("FLAGS_cinn_use_common_subexpression_elimination", false),
             "Whether to use common subexpression elimination pass.");
